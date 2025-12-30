@@ -20,14 +20,12 @@ from homeassistant.components.conversation import (
     ConversationResult,
     async_get_chat_log,
 )
-from homeassistant.components.homeassistant.exposed_entities import async_should_expose
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import ATTR_NAME, MATCH_ALL
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, TemplateError
 from homeassistant.helpers import (
     device_registry as dr,
-    entity_registry as er,
     intent,
     template,
 )
@@ -68,7 +66,7 @@ from .exceptions import (
     ParseArgumentsFailed,
     TokenLengthExceededError,
 )
-from .helpers import get_function_executor
+from .helpers import get_exposed_entities, get_function_executor
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -262,30 +260,8 @@ class ExtendedOpenAIAgentEntity(
         )
 
     def get_exposed_entities(self):
-        states = [
-            state
-            for state in self.hass.states.async_all()
-            if async_should_expose(self.hass, conversation.DOMAIN, state.entity_id)
-        ]
-        entity_registry = er.async_get(self.hass)
-        exposed_entities = []
-        for state in states:
-            entity_id = state.entity_id
-            entity = entity_registry.async_get(entity_id)
+        return get_exposed_entities(self.hass)
 
-            aliases = []
-            if entity and entity.aliases:
-                aliases = entity.aliases
-
-            exposed_entities.append(
-                {
-                    "entity_id": entity_id,
-                    "name": state.name,
-                    "state": self.hass.states.get(entity_id).state,
-                    "aliases": aliases,
-                }
-            )
-        return exposed_entities
 
     def get_functions(self):
         try:
