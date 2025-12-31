@@ -20,12 +20,7 @@ from homeassistant.components.homeassistant.exposed_entities import async_should
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import MATCH_ALL
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import TemplateError
-from homeassistant.helpers import (
-    entity_registry as er,
-    intent,
-    template,
-)
+from homeassistant.helpers import entity_registry as er, intent, llm, template
 from homeassistant.helpers.chat_session import async_get_chat_session
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -39,11 +34,7 @@ from .const import (
     EVENT_CONVERSATION_FINISHED,
 )
 from .entity import ExtendedOpenAIBaseLLMEntity
-from .exceptions import (
-    FunctionLoadFailed,
-    FunctionNotFound,
-    InvalidFunction,
-)
+from .exceptions import FunctionLoadFailed, FunctionNotFound, InvalidFunction
 from .helpers import get_function_executor
 
 _LOGGER = logging.getLogger(__name__)
@@ -112,6 +103,9 @@ class ExtendedOpenAIAgentEntity(
         chat_log: ChatLog,
     ) -> ConversationResult:
         """Call the API."""
+        # Create LLM context
+        llm_context = user_input.as_llm_context(DOMAIN)
+
         # Get exposed entities for custom functions
         exposed_entities = self._get_exposed_entities()
 
@@ -119,19 +113,7 @@ class ExtendedOpenAIAgentEntity(
         custom_functions = self._get_functions()
 
         # Build custom prompt with exposed entities
-        try:
-            system_prompt = self._build_system_prompt(exposed_entities, user_input)
-        except TemplateError as err:
-            _LOGGER.error("Error rendering prompt: %s", err)
-            intent_response = intent.IntentResponse(language=user_input.language)
-            intent_response.async_set_error(
-                intent.IntentResponseErrorCode.UNKNOWN,
-                f"Sorry, I had a problem with my template: {err}",
-            )
-            return ConversationResult(
-                response=intent_response,
-                conversation_id=chat_log.conversation_id,
-            )
+        system_prompt = self._build_system_prompt(exposed_entities, llm_context)
 
         # Set system prompt in chat log
         chat_log.content[0] = conversation.SystemContent(content=system_prompt)
@@ -141,7 +123,7 @@ class ExtendedOpenAIAgentEntity(
             chat_log,
             custom_functions=custom_functions,
             exposed_entities=exposed_entities,
-            user_input=user_input,
+            llm_context=llm_context,
         )
 
         # Fire conversation finished event
@@ -173,7 +155,7 @@ class ExtendedOpenAIAgentEntity(
     def _build_system_prompt(
         self,
         exposed_entities: list[dict],
-        user_input: ConversationInput,
+        llm_context: llm.LLMContext,
     ) -> str:
         """Build system prompt with exposed entities."""
         raw_prompt = self.subentry.data.get(CONF_PROMPT, DEFAULT_PROMPT)
@@ -182,7 +164,7 @@ class ExtendedOpenAIAgentEntity(
             {
                 "ha_name": self.hass.config.location_name,
                 "exposed_entities": exposed_entities,
-                "current_device_id": user_input.device_id,
+                "current_device_id": llm_context.device_id,
             },
             parse_result=False,
         )
@@ -202,7 +184,7 @@ class ExtendedOpenAIAgentEntity(
 
             aliases = []
             if entity and entity.aliases:
-                aliases = list(entity.aliases)
+                aliases = entity.aliases
 
             exposed_entities.append(
                 {
@@ -230,5 +212,5 @@ class ExtendedOpenAIAgentEntity(
             return result or []
         except (InvalidFunction, FunctionNotFound) as e:
             raise e
-        except Exception:
-            raise FunctionLoadFailed()
+        except Exception as e:
+            raise FunctionLoadFailed() from e

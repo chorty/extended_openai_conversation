@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from openai import AsyncClient, AsyncStream
 from openai._exceptions import OpenAIError
 from openai.types.chat import (
+    ChatCompletionAssistantMessageParam,
     ChatCompletionChunk,
     ChatCompletionMessageParam,
     ChatCompletionToolParam,
@@ -40,6 +41,8 @@ from .const import (
     DEFAULT_USE_TOOLS,
     DOMAIN,
 )
+from .exceptions import FunctionNotFound, ParseArgumentsFailed, TokenLengthExceededError
+from .helpers import get_function_executor
 
 if TYPE_CHECKING:
     from . import ExtendedOpenAIConfigEntry
@@ -58,11 +61,11 @@ def _convert_content_to_param(
 
     for content in chat_content:
         if content.role == "system":
-            messages.append({"role": "system", "content": content.content or ""})
+            messages.append({"role": "system", "content": content.content})
         elif content.role == "user":
-            messages.append({"role": "user", "content": content.content or ""})
+            messages.append({"role": "user", "content": content.content})
         elif content.role == "assistant":
-            msg: dict[str, Any] = {"role": "assistant"}
+            msg: ChatCompletionAssistantMessageParam = {"role": "assistant"}
             if content.content:
                 msg["content"] = content.content
             if content.tool_calls:
@@ -88,86 +91,6 @@ def _convert_content_to_param(
             )
 
     return messages
-
-
-async def _transform_stream(
-    chat_log: conversation.ChatLog,
-    result: AsyncStream[ChatCompletionChunk],
-) -> AsyncGenerator[
-    conversation.AssistantContentDeltaDict | conversation.ToolResultContentDeltaDict
-]:
-    """Transform OpenAI stream to Home Assistant format."""
-    current_tool_calls: dict[int, dict[str, Any]] = {}
-    first_chunk = True
-
-    async for chunk in result:
-        _LOGGER.debug("Received chunk: %s", chunk)
-
-        # Signal new assistant message on first chunk
-        if first_chunk:
-            yield {"role": "assistant"}
-            first_chunk = False
-
-        if not chunk.choices:
-            # Track usage from final chunk if available
-            if chunk.usage:
-                chat_log.async_trace(
-                    {
-                        "stats": {
-                            "input_tokens": chunk.usage.prompt_tokens,
-                            "output_tokens": chunk.usage.completion_tokens,
-                        }
-                    }
-                )
-            continue
-
-        choice = chunk.choices[0]
-        delta = choice.delta
-
-        if delta.content:
-            yield {"content": delta.content}
-
-        if delta.tool_calls:
-            for tool_call_delta in delta.tool_calls:
-                idx = tool_call_delta.index
-                if idx not in current_tool_calls:
-                    current_tool_calls[idx] = {
-                        "id": tool_call_delta.id or "",
-                        "name": "",
-                        "arguments": "",
-                    }
-
-                if tool_call_delta.function:
-                    if tool_call_delta.function.name:
-                        current_tool_calls[idx]["name"] = tool_call_delta.function.name
-                    if tool_call_delta.function.arguments:
-                        current_tool_calls[idx][
-                            "arguments"
-                        ] += tool_call_delta.function.arguments
-
-        if choice.finish_reason == "tool_calls":
-            # Yield all accumulated tool calls (marked as external since we handle them ourselves)
-            tool_calls_list = []
-            for idx in sorted(current_tool_calls.keys()):
-                tc = current_tool_calls[idx]
-                try:
-                    args = json.loads(tc["arguments"]) if tc["arguments"] else {}
-                except json.JSONDecodeError:
-                    args = {}
-                tool_calls_list.append(
-                    llm.ToolInput(
-                        id=tc["id"],
-                        tool_name=tc["name"],
-                        tool_args=args,
-                        external=True,  # Mark as external so ChatLog doesn't try to execute
-                    )
-                )
-            if tool_calls_list:
-                yield {"tool_calls": tool_calls_list}
-            current_tool_calls.clear()
-
-        if choice.finish_reason == "stop":
-            break
 
 
 class ExtendedOpenAIBaseLLMEntity(Entity):
@@ -199,9 +122,9 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
     async def _async_handle_chat_log(
         self,
         chat_log: conversation.ChatLog,
-        custom_functions: list[dict[str, Any]] | None = None,
-        exposed_entities: list[dict[str, Any]] | None = None,
-        user_input: conversation.ConversationInput | None = None,
+        custom_functions: list[dict[str, Any]],
+        exposed_entities: list[dict[str, Any]],
+        llm_context: llm.LLMContext | None = None,
     ) -> None:
         """Generate an answer for the chat log with streaming support."""
         options = self.subentry.data
@@ -210,9 +133,6 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
         top_p = options.get(CONF_TOP_P, DEFAULT_TOP_P)
         temperature = options.get(CONF_TEMPERATURE, DEFAULT_TEMPERATURE)
         use_tools = options.get(CONF_USE_TOOLS, DEFAULT_USE_TOOLS)
-        context_threshold = options.get(
-            CONF_CONTEXT_THRESHOLD, DEFAULT_CONTEXT_THRESHOLD
-        )
         max_function_calls = options.get(
             CONF_MAX_FUNCTION_CALLS_PER_CONVERSATION,
             DEFAULT_MAX_FUNCTION_CALLS_PER_CONVERSATION,
@@ -222,9 +142,8 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
 
         # Build tools list from custom functions only
         tools: list[ChatCompletionToolParam] = []
-        custom_function_names: set[str] = set()
 
-        if custom_functions and use_tools:
+        if use_tools:
             for func_spec in custom_functions:
                 tools.append(
                     ChatCompletionToolParam(
@@ -232,7 +151,6 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
                         function=func_spec["spec"],
                     )
                 )
-                custom_function_names.add(func_spec["spec"]["name"])
 
         # Determine token parameter based on model
         model_lower = model.lower()
@@ -251,16 +169,13 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
             tool_kwargs["tools"] = tools
             tool_kwargs["tool_choice"] = "auto"
 
-        _LOGGER.info("Prompt for %s: %s", model, json.dumps(messages))
-
-        # Track function calls
-        n_requests = 0
-
         # To prevent infinite loops, we limit the number of iterations
-        for _iteration in range(MAX_TOOL_ITERATIONS):
+        for n_requests in range(MAX_TOOL_ITERATIONS):
             # Update tool_choice based on function call count
             if tools and n_requests >= max_function_calls:
                 tool_kwargs["tool_choice"] = "none"
+
+            _LOGGER.info("Prompt for %s: %s", model, json.dumps(messages))
 
             try:
                 stream = await self._client.chat.completions.create(
@@ -282,41 +197,37 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
             pending_tool_calls: list[llm.ToolInput] = []
 
             async for content in chat_log.async_add_delta_content_stream(
-                self.entity_id, _transform_stream(chat_log, stream)
+                self.entity_id, self._transform_stream(chat_log, stream)
             ):
                 if isinstance(content, conversation.AssistantContent):
                     if content.tool_calls:
                         pending_tool_calls.extend(content.tool_calls)
+
+            if pending_tool_calls:
+                _LOGGER.info("Response Tool Calls %s", pending_tool_calls)
 
             # Execute custom functions
             for tool_call in pending_tool_calls:
                 custom_func = next(
                     (
                         f
-                        for f in (custom_functions or [])
+                        for f in (custom_functions)
                         if f["spec"]["name"] == tool_call.tool_name
                     ),
                     None,
                 )
 
-                if custom_func:
-                    result = await self._execute_custom_function(
-                        custom_func,
-                        tool_call.tool_args,
-                        user_input,
-                        exposed_entities or [],
-                    )
+                if custom_func is None:
+                    raise FunctionNotFound(tool_call.tool_name)
 
-                    tool_result_content = conversation.ToolResultContent(
-                        agent_id=self.entity_id,
-                        tool_call_id=tool_call.id,
-                        tool_name=tool_call.tool_name,
-                        tool_result={"result": str(result)},
-                    )
-                    chat_log.async_add_assistant_content_without_tools(
-                        tool_result_content
-                    )
-                    n_requests += 1
+                tool_result_content = await self._execute_custom_function(
+                    custom_func,
+                    tool_call,
+                    llm_context,
+                    exposed_entities,
+                )
+
+                chat_log.async_add_assistant_content_without_tools(tool_result_content)
 
             # Update messages for next iteration
             messages = _convert_content_to_param(chat_log.content)
@@ -325,28 +236,153 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
             if not chat_log.unresponded_tool_results:
                 break
 
+    async def _transform_stream(
+        self,
+        chat_log: conversation.ChatLog,
+        result: AsyncStream[ChatCompletionChunk],
+    ) -> AsyncGenerator[
+        conversation.AssistantContentDeltaDict | conversation.ToolResultContentDeltaDict
+    ]:
+        """Transform OpenAI stream to Home Assistant format."""
+        current_tool_calls: dict[int, dict[str, Any]] = {}
+        first_chunk = True
+
+        async for chunk in result:
+            _LOGGER.debug("Received chunk: %s", chunk)
+
+            # Signal new assistant message on first chunk
+            if first_chunk:
+                yield {"role": "assistant"}
+                first_chunk = False
+
+            if not chunk.choices:
+                # Track usage from final chunk if available
+                if chunk.usage:
+                    chat_log.async_trace(
+                        {
+                            "stats": {
+                                "input_tokens": chunk.usage.prompt_tokens,
+                                "output_tokens": chunk.usage.completion_tokens,
+                            }
+                        }
+                    )
+                    if chunk.usage.total_tokens > self.subentry.data.get(
+                        CONF_CONTEXT_THRESHOLD, DEFAULT_CONTEXT_THRESHOLD
+                    ):
+                        await self._truncate_message_history(chat_log)
+                continue
+
+            choice = chunk.choices[0]
+            delta = choice.delta
+
+            if delta.content:
+                yield {"content": delta.content}
+
+            if delta.tool_calls:
+                for tool_call_delta in delta.tool_calls:
+                    idx = tool_call_delta.index
+                    if idx not in current_tool_calls:
+                        current_tool_calls[idx] = {
+                            "id": tool_call_delta.id or "",
+                            "name": "",
+                            "arguments": "",
+                        }
+
+                    if tool_call_delta.function:
+                        if tool_call_delta.function.name:
+                            current_tool_calls[idx]["name"] = (
+                                tool_call_delta.function.name
+                            )
+                        if tool_call_delta.function.arguments:
+                            current_tool_calls[idx]["arguments"] += (
+                                tool_call_delta.function.arguments
+                            )
+
+            if current_tool_calls and (choice.finish_reason in {"tool_calls", "stop"}):
+                # Yield all accumulated tool calls (marked as external since we handle them ourselves)
+                tool_calls_list = []
+                for idx in sorted(current_tool_calls.keys()):
+                    tool_call = current_tool_calls[idx]
+                    try:
+                        args = json.loads(tool_call["arguments"])
+                    except json.JSONDecodeError as err:
+                        raise ParseArgumentsFailed(tool_call["arguments"]) from err
+                    tool_calls_list.append(
+                        llm.ToolInput(
+                            id=tool_call["id"],
+                            tool_name=tool_call["name"],
+                            tool_args=args,
+                            external=True,  # Mark as external so ChatLog doesn't try to execute
+                        )
+                    )
+                if tool_calls_list:
+                    yield {"tool_calls": tool_calls_list}
+                current_tool_calls.clear()
+            if choice.finish_reason == "length":
+                raise TokenLengthExceededError(
+                    self.subentry.data.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)
+                )
+
+            if choice.finish_reason == "stop":
+                break
+
     async def _execute_custom_function(
         self,
         function_spec: dict[str, Any],
-        arguments: dict[str, Any],
-        user_input: conversation.ConversationInput | None,
+        tool_input: llm.ToolInput,
+        llm_context: llm.LLMContext | None,
         exposed_entities: list[dict[str, Any]],
-    ) -> Any:
+    ) -> conversation.ToolResultContent:
         """Execute a custom function."""
-        from .helpers import get_function_executor
-
         function = function_spec["function"]
+        arguments: dict[str, Any] = tool_input.tool_args
         function_executor = get_function_executor(function["type"])
 
-        return await function_executor.execute(
-            self.hass, function, arguments, user_input, exposed_entities
+        if self.should_run_in_background(arguments):
+            # create a delayed function and execute in background
+            function_executor = get_function_executor("composite")
+            self.entry.async_create_task(
+                self.hass,
+                function_executor.execute(
+                    self.hass,
+                    self.get_delayed_function(function, arguments),
+                    arguments,
+                    llm_context,
+                    exposed_entities,
+                ),
+            )
+            result = "Scheduled"
+        else:
+            result = await function_executor.execute(
+                self.hass, function, arguments, llm_context, exposed_entities
+            )
+
+        return conversation.ToolResultContent(
+            agent_id=self.entity_id,
+            tool_call_id=tool_input.id,
+            tool_name=tool_input.tool_name,
+            tool_result={"result": str(result)},
         )
 
-    async def _truncate_message_history(
-        self,
-        chat_log: conversation.ChatLog,
-        user_input: conversation.ConversationInput | None,
-    ) -> None:
+    def should_run_in_background(self, arguments) -> bool:
+        """Check if function needs delay."""
+        return isinstance(arguments, dict) and arguments.get("delay") is not None
+
+    def get_delayed_function(self, function, arguments) -> dict:
+        """Execute function with delay."""
+        # create a composite function with delay in script function
+        return {
+            "type": "composite",
+            "sequence": [
+                {
+                    "type": "script",
+                    "sequence": [{"delay": arguments["delay"]}],
+                },
+                function,
+            ],
+        }
+
+    async def _truncate_message_history(self, chat_log: conversation.ChatLog) -> None:
         """Truncate message history based on strategy."""
         options = self.subentry.data
         strategy = options.get(
@@ -356,4 +392,13 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
         if strategy == "clear":
             # Keep only system prompt and last user message
             # This is handled by refreshing the LLM data
-            _LOGGER.debug("Context threshold exceeded, conversation history cleared")
+            _LOGGER.info("Context threshold exceeded, conversation history cleared")
+            last_user_message_index = None
+            messages = chat_log.content
+            for i in reversed(range(len(messages))):
+                if isinstance(messages[i], conversation.UserContent):
+                    last_user_message_index = i
+                    break
+
+            if last_user_message_index is not None:
+                del messages[1:last_user_message_index]
