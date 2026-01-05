@@ -50,9 +50,11 @@ import homeassistant.util.dt as dt_util
 
 from .const import (
     CONF_PAYLOAD_TEMPLATE,
+    DEFAULT_MODEL_CONFIG,
     DEFAULT_TOKEN_PARAM,
     DOMAIN,
     EVENT_AUTOMATION_REGISTERED,
+    MODEL_CONFIG_PATTERNS,
     MODEL_TOKEN_PARAMETER_SUPPORT,
 )
 from .exceptions import (
@@ -68,6 +70,17 @@ _LOGGER = logging.getLogger(__name__)
 
 
 AZURE_DOMAIN_PATTERN = r"\.(openai\.azure\.com|azure-api\.net|services\.ai\.azure\.com)"
+
+
+def get_model_config(model: str) -> dict[str, bool]:
+    """Get model-specific parameter configuration."""
+    # Check patterns in order; first match wins
+    for entry in MODEL_CONFIG_PATTERNS:
+        if re.match(entry["pattern"], model, re.IGNORECASE):
+            return entry["config"]
+
+    # Default configuration for standard models (gpt-4, gpt-4o, etc.)
+    return DEFAULT_MODEL_CONFIG
 
 
 def get_exposed_entities(hass: HomeAssistant) -> list[dict[str, Any]]:
