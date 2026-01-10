@@ -159,7 +159,6 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
         # Build API parameters based on model configuration
         api_kwargs: dict[str, Any] = {
             "model": model,
-            "messages": messages,
             "user": chat_log.conversation_id,
             "stream": True,
             "stream_options": {"include_usage": True},
@@ -210,6 +209,7 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
 
             try:
                 stream = await self._client.chat.completions.create(
+                    messages=messages,
                     **api_kwargs,
                     **tool_kwargs,
                 )
