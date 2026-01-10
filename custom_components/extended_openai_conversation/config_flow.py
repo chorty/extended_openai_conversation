@@ -34,6 +34,7 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     API_PROVIDERS,
+    CONF_ADVANCED_OPTIONS,
     CONF_API_PROVIDER,
     CONF_API_VERSION,
     CONF_BASE_URL,
@@ -45,11 +46,14 @@ from .const import (
     CONF_MAX_TOKENS,
     CONF_ORGANIZATION,
     CONF_PROMPT,
+    CONF_REASONING_EFFORT,
+    CONF_SERVICE_TIER,
     CONF_SKIP_AUTHENTICATION,
     CONF_TEMPERATURE,
     CONF_TOP_P,
     CONF_USE_TOOLS,
     CONTEXT_TRUNCATE_STRATEGIES,
+    DEFAULT_ADVANCED_OPTIONS,
     DEFAULT_API_PROVIDER,
     DEFAULT_CHAT_MODEL,
     DEFAULT_CONF_BASE_URL,
@@ -61,13 +65,17 @@ from .const import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_NAME,
     DEFAULT_PROMPT,
+    DEFAULT_REASONING_EFFORT,
+    DEFAULT_SERVICE_TIER,
     DEFAULT_SKIP_AUTHENTICATION,
     DEFAULT_TEMPERATURE,
     DEFAULT_TOP_P,
     DEFAULT_USE_TOOLS,
     DOMAIN,
+    REASONING_EFFORT_OPTIONS,
+    SERVICE_TIER_OPTIONS,
 )
-from .helpers import get_authenticated_client
+from .helpers import get_authenticated_client, get_model_config
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -109,6 +117,7 @@ DEFAULT_OPTIONS = types.MappingProxyType(
         CONF_USE_TOOLS: DEFAULT_USE_TOOLS,
         CONF_CONTEXT_THRESHOLD: DEFAULT_CONTEXT_THRESHOLD,
         CONF_CONTEXT_TRUNCATE_STRATEGY: DEFAULT_CONTEXT_TRUNCATE_STRATEGY,
+        CONF_ADVANCED_OPTIONS: DEFAULT_ADVANCED_OPTIONS,
     }
 )
 
@@ -200,6 +209,7 @@ class ExtendedOpenAISubentryFlowHandler(ConfigSubentryFlow):
     """Flow for managing OpenAI subentries."""
 
     options: dict[str, Any]
+    _temp_data: dict[str, Any] | None = None
 
     @property
     def _is_new(self) -> bool:
@@ -229,6 +239,13 @@ class ExtendedOpenAISubentryFlowHandler(ConfigSubentryFlow):
             return self.async_abort(reason="entry_not_loaded")
 
         if user_input is not None:
+            # Check if advanced options is enabled
+            if user_input.get(CONF_ADVANCED_OPTIONS, False):
+                # Store data and move to advanced step
+                self._temp_data = user_input
+                return await self.async_step_advanced()
+
+            # No advanced options, save directly
             if self._is_new:
                 title = user_input.get(CONF_NAME, DEFAULT_NAME)
                 if CONF_NAME in user_input:
@@ -253,68 +270,132 @@ class ExtendedOpenAISubentryFlowHandler(ConfigSubentryFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(schema),
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema(schema), self.options
+            ),
+        )
+
+    async def async_step_advanced(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Handle advanced options step."""
+        if user_input is not None:
+            # Merge advanced options with temp data
+            final_data = {**self._temp_data, **user_input}
+
+            if self._is_new:
+                title = final_data.get(CONF_NAME, DEFAULT_NAME)
+                if CONF_NAME in final_data:
+                    del final_data[CONF_NAME]
+                return self.async_create_entry(
+                    title=title,
+                    data=final_data,
+                )
+            return self.async_update_and_abort(
+                self._get_entry(),
+                self._get_reconfigure_subentry(),
+                data=final_data,
+            )
+
+        # Build schema for advanced options based on selected model
+        chat_model = self._temp_data.get(CONF_CHAT_MODEL, DEFAULT_CHAT_MODEL)
+        model_config = get_model_config(chat_model)
+
+        schema = {}
+
+        # Add top_p if supported
+        if model_config["supports_top_p"]:
+            schema[
+                vol.Optional(
+                    CONF_TOP_P,
+                    default=DEFAULT_TOP_P,
+                )
+            ] = NumberSelector(NumberSelectorConfig(min=0, max=1, step=0.05))
+
+        # Add temperature if supported
+        if model_config["supports_temperature"]:
+            schema[
+                vol.Optional(
+                    CONF_TEMPERATURE,
+                    default=DEFAULT_TEMPERATURE,
+                )
+            ] = NumberSelector(NumberSelectorConfig(min=0, max=2, step=0.05))
+
+        # Add reasoning_effort if supported (o1, o3, o4, gpt-5 models)
+        if model_config.get("supports_reasoning_effort"):
+            schema[
+                vol.Optional(
+                    CONF_REASONING_EFFORT,
+                    default=DEFAULT_REASONING_EFFORT,
+                )
+            ] = SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value=opt, label=opt.capitalize())
+                        for opt in REASONING_EFFORT_OPTIONS
+                    ],
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            )
+
+        # Add service_tier if supported (o3, o4, gpt-5 models)
+        if model_config.get("supports_service_tier"):
+            schema[
+                vol.Optional(
+                    CONF_SERVICE_TIER,
+                    default=DEFAULT_SERVICE_TIER,
+                )
+            ] = SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value=opt, label=opt.capitalize())
+                        for opt in SERVICE_TIER_OPTIONS
+                    ],
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            )
+
+        return self.async_show_form(
+            step_id="advanced",
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema(schema), self.options
+            ),
         )
 
     def openai_config_option_schema(self, options: dict[str, Any]) -> dict:
         """Return a schema for OpenAI completion options."""
-        return {
+        # Basic schema - shown on initial form
+        schema = {
             vol.Optional(
                 CONF_PROMPT,
-                description={"suggested_value": options.get(CONF_PROMPT)},
                 default=DEFAULT_PROMPT,
             ): TemplateSelector(),
             vol.Optional(
                 CONF_CHAT_MODEL,
-                description={"suggested_value": options.get(CONF_CHAT_MODEL)},
                 default=DEFAULT_CHAT_MODEL,
             ): str,
             vol.Optional(
                 CONF_MAX_TOKENS,
-                description={"suggested_value": options.get(CONF_MAX_TOKENS)},
                 default=DEFAULT_MAX_TOKENS,
             ): int,
             vol.Optional(
-                CONF_TOP_P,
-                description={"suggested_value": options.get(CONF_TOP_P)},
-                default=DEFAULT_TOP_P,
-            ): NumberSelector(NumberSelectorConfig(min=0, max=1, step=0.05)),
-            vol.Optional(
-                CONF_TEMPERATURE,
-                description={"suggested_value": options.get(CONF_TEMPERATURE)},
-                default=DEFAULT_TEMPERATURE,
-            ): NumberSelector(NumberSelectorConfig(min=0, max=1, step=0.05)),
-            vol.Optional(
                 CONF_MAX_FUNCTION_CALLS_PER_CONVERSATION,
-                description={
-                    "suggested_value": options.get(
-                        CONF_MAX_FUNCTION_CALLS_PER_CONVERSATION,
-                    )
-                },
                 default=DEFAULT_MAX_FUNCTION_CALLS_PER_CONVERSATION,
             ): int,
             vol.Optional(
                 CONF_FUNCTIONS,
-                description={"suggested_value": options.get(CONF_FUNCTIONS)},
                 default=DEFAULT_CONF_FUNCTIONS_STR,
             ): TemplateSelector(),
             vol.Optional(
                 CONF_USE_TOOLS,
-                description={"suggested_value": options.get(CONF_USE_TOOLS)},
                 default=DEFAULT_USE_TOOLS,
             ): BooleanSelector(),
             vol.Optional(
                 CONF_CONTEXT_THRESHOLD,
-                description={"suggested_value": options.get(CONF_CONTEXT_THRESHOLD)},
                 default=DEFAULT_CONTEXT_THRESHOLD,
             ): int,
             vol.Optional(
                 CONF_CONTEXT_TRUNCATE_STRATEGY,
-                description={
-                    "suggested_value": options.get(
-                        CONF_CONTEXT_TRUNCATE_STRATEGY,
-                    )
-                },
                 default=DEFAULT_CONTEXT_TRUNCATE_STRATEGY,
             ): SelectSelector(
                 SelectSelectorConfig(
@@ -325,4 +406,10 @@ class ExtendedOpenAISubentryFlowHandler(ConfigSubentryFlow):
                     mode=SelectSelectorMode.DROPDOWN,
                 )
             ),
+            vol.Optional(
+                CONF_ADVANCED_OPTIONS,
+                default=DEFAULT_ADVANCED_OPTIONS,
+            ): BooleanSelector(),
         }
+
+        return schema

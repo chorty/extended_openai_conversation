@@ -114,6 +114,49 @@ CONTEXT_TRUNCATE_STRATEGIES = [{"key": "clear", "label": "Clear All Messages"}]
 CONF_CONTEXT_TRUNCATE_STRATEGY = "context_truncate_strategy"
 DEFAULT_CONTEXT_TRUNCATE_STRATEGY = CONTEXT_TRUNCATE_STRATEGIES[0]["key"]
 
+# Service Tier options (for GPT-5 models)
+CONF_SERVICE_TIER = "service_tier"
+DEFAULT_SERVICE_TIER = "auto"
+SERVICE_TIER_OPTIONS = ["auto", "default", "flex", "priority"]
+
+# Reasoning Effort options (for o1, o3, o4, gpt-5 models)
+CONF_REASONING_EFFORT = "reasoning_effort"
+DEFAULT_REASONING_EFFORT = "low"
+REASONING_EFFORT_OPTIONS = ["low", "medium", "high"]
+
 SERVICE_QUERY_IMAGE = "query_image"
 
 CONF_PAYLOAD_TEMPLATE = "payload_template"
+
+# Advanced Options
+CONF_ADVANCED_OPTIONS = "advanced_options"
+DEFAULT_ADVANCED_OPTIONS = False
+
+# Model-specific parameter configurations
+# Default configuration for standard models (gpt-4, gpt-4o, etc.)
+DEFAULT_MODEL_CONFIG = {
+    "supports_top_p": True,
+    "supports_temperature": True,
+    "supports_max_tokens": True,
+    "supports_max_completion_tokens": False,
+    "supports_reasoning_effort": False,
+    "supports_service_tier": False,
+}
+
+# Pattern-based model configurations
+# Each entry: {"pattern": regex_string, "config": config_dict}
+# Patterns are matched in order; first match wins
+MODEL_CONFIG_PATTERNS = [
+    # Reasoning models (o1, o3, o4, gpt-5, etc.)
+    {
+        "pattern": r"^o[1-4]|^gpt-5",
+        "config": {
+            "supports_top_p": False,
+            "supports_temperature": False,
+            "supports_max_tokens": False,
+            "supports_max_completion_tokens": True,
+            "supports_reasoning_effort": True,
+            "supports_service_tier": True,
+        },
+    },
+]
