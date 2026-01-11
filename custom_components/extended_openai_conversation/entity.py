@@ -207,15 +207,11 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
 
             _LOGGER.info("Prompt for %s: %s", model, json.dumps(messages))
 
-            try:
-                stream = await self._client.chat.completions.create(
-                    messages=messages,
-                    **api_kwargs,
-                    **tool_kwargs,
-                )
-            except OpenAIError as err:
-                _LOGGER.error("Error talking to OpenAI: %s", err)
-                raise HomeAssistantError("Error talking to OpenAI") from err
+            stream = await self._client.chat.completions.create(
+                messages=messages,
+                **api_kwargs,
+                **tool_kwargs,
+            )
 
             # Process stream and collect tool calls
             pending_tool_calls: list[llm.ToolInput] = []
