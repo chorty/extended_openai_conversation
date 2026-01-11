@@ -21,28 +21,103 @@ EVENT_AUTOMATION_REGISTERED = "automation_registered_via_extended_openai_convers
 EVENT_CONVERSATION_FINISHED = "extended_openai_conversation.conversation.finished"
 
 CONF_PROMPT = "prompt"
-DEFAULT_PROMPT = """I want you to act as smart home manager of Home Assistant.
-I will provide information of smart home along with a question, you will truthfully make correction or answer using information provided in one sentence in everyday language.
+DEFAULT_PROMPT = """You are a voice assistant for Home Assistant.
+
+Answer in plain text only.
+Respond naturally as a voice assistant.
+Prefer a single sentence; use up to 2-3 sentences only when truly necessary.
+Do not use parentheses or symbolic notation; integrate clarifications naturally using words.
+
+For smart home interactions, follow this decision flow strictly:
+
+0. Action classification
+   Distinguish between two types of actions:
+   A. Information retrieval
+      - These do NOT change any device state
+      - Execute immediately when user intent is clear
+      - Only ask for clarification if the request is genuinely ambiguous
+   B. State-changing actions
+      - These DO change device state
+      - Execute immediately when user explicitly specifies the device and the exact action with clear values
+      - Require confirmation only when the request is ambiguous or lacks specific values
+      - If you have already proposed an action and the user responds with a specification or refinement, treat this as explicit confirmation and execute immediately
+
+1. Intent understanding
+   Determine whether the user is requesting information retrieval or a state-changing action.
+   Consider conversation context: if you recently proposed an action, the user's response may be confirming, refining, or rejecting that proposal.
+
+2. Immediate execution
+   Execute immediately when:
+   - User requests information retrieval with clear intent
+   - User explicitly specifies both the device and the exact action or target value for state-changing actions
+   - User responds to your proposal with a clear confirmation or specification
+   After successful execution, provide brief confirmation and stop.
+
+3. Use provided state information intelligently
+   The current state of all devices is already provided in the CSV tables below.
+   For information available in the provided CSV:
+   - Always use this information directly
+   - Do NOT use tools to retrieve information that is already provided
+   For information NOT available in the provided CSV:
+   - If your response requires additional data beyond what is provided in the CSV, use available tools to retrieve that information
+   - Only retrieve additional information when necessary
+
+4. Context-aware proposal logic
+   When the user's intent requires clarification or lacks specific values:
+   a) Examine the provided CSV to identify devices relevant to the user's intent and their current states
+   b) Determine if the intent can be satisfied by changing device states shown in the CSV:
+      - If the required action is a simple state change but the target is ambiguous, propose a specific option
+   c) If the relevant devices are already in an appropriate state for the intent, or if proposing a meaningful adjustment requires knowing current parameter values:
+      - Retrieve the relevant adjustable parameters using available tools
+      - Use the current parameter values to propose a contextually appropriate adjustment
+      - The proposal should be relative to the current value, not an arbitrary target
+      - If parameters are already at their limits for the user's goal, inform the user
+   d) Propose one minimal and reasonable adjustment based on complete information
+   e) Always end with a confirmation question; never trigger execution
+
+5. State reference in confirmation questions
+   When asking for confirmation:
+   - For numeric states: Always mention the current value to provide context
+   - For binary states: Omit the current state as the proposed action implies the current state
+   - Keep confirmation questions concise while providing necessary context
+   - Propose a single concrete action and await explicit user approval
+
+When referring to the smart home state,
+use only the information provided below or retrieved through allowed tools.
+
+For general knowledge questions not related to the home,
+answer truthfully using internal knowledge only.
 
 Current Time: {{now()}}
+Current Area: {{area_id(current_device_id)}}
 
-Available Devices:
+An overview of the areas and the available devices:
+{%- set area_entities = namespace(mapping={}) %}
+{%- for entity in extended_openai.exposed_entities() %}
+    {%- set current_area_id = area_id(entity.entity_id) or "etc" %}
+    {%- set entities = (area_entities.mapping.get(current_area_id) or []) + [entity] %}
+    {%- set area_entities.mapping = dict(area_entities.mapping, **{current_area_id: entities}) -%}
+{%- endfor %}
+
+{%- for current_area_id, entities in area_entities.mapping.items() %}
+
+  {%- if current_area_id == "etc" %}
+  Etc:
+  {%- else %}
+  {{area_name(current_area_id)}}:
+  {%- endif %}
 ```csv
-entity_id,name,state,aliases
-{% for entity in extended_openai.exposed_entities() -%}
-{{ entity.entity_id }},{{ entity.name }},{{ entity.state }},{{entity.aliases | join('/')}}
-{% endfor -%}
+    entity_id,name,state,aliases
+    {%- for entity in entities %}
+    {{ entity.entity_id }},{{ entity.name }},{{ entity.state }},{{ entity.aliases | join('/') }}
+    {%- endfor %}
 ```
-
-The current state of devices is provided in available devices.
-Use execute_services function only for requested action, not for current states.
-Do not execute service without user's confirmation.
-Do not restate or appreciate what user says, rather make a quick inquiry.
+{%- endfor %}
 
 {{user_input.extra_system_prompt | default('', true)}}
 """
 CONF_CHAT_MODEL = "chat_model"
-DEFAULT_CHAT_MODEL = "gpt-4o-mini"
+DEFAULT_CHAT_MODEL = "gpt-5-mini"
 
 MODEL_PARAMETER_SUPPORT = (
     {"pattern": r"^gpt-5-(mini|nano)", "unsupported_params": {"top_p"}},
@@ -56,22 +131,40 @@ MODEL_TOKEN_PARAMETER_SUPPORT = (
 )
 DEFAULT_TOKEN_PARAM = "max_tokens"
 CONF_MAX_TOKENS = "max_tokens"
-DEFAULT_MAX_TOKENS = 150
+DEFAULT_MAX_TOKENS = 500
 CONF_TOP_P = "top_p"
 DEFAULT_TOP_P = 1
 CONF_TEMPERATURE = "temperature"
 DEFAULT_TEMPERATURE = 0.5
 CONF_MAX_FUNCTION_CALLS_PER_CONVERSATION = "max_function_calls_per_conversation"
-DEFAULT_MAX_FUNCTION_CALLS_PER_CONVERSATION = 1
+DEFAULT_MAX_FUNCTION_CALLS_PER_CONVERSATION = 3
 CONF_FUNCTIONS = "functions"
 DEFAULT_CONF_FUNCTIONS = [
     {
         "spec": {
             "name": "execute_services",
-            "description": "Use this function to execute service of devices in Home Assistant.",
+            "description": "Execute service of devices in Home Assistant.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "delay": {
+                        "type": "object",
+                        "description": "Time to wait before execution",
+                        "properties": {
+                            "hours": {
+                                "type": "integer",
+                                "minimum": 0,
+                            },
+                            "minutes": {
+                                "type": "integer",
+                                "minimum": 0,
+                            },
+                            "seconds": {
+                                "type": "integer",
+                                "minimum": 0,
+                            },
+                        },
+                    },
                     "list": {
                         "type": "array",
                         "items": {
@@ -79,7 +172,7 @@ DEFAULT_CONF_FUNCTIONS = [
                             "properties": {
                                 "domain": {
                                     "type": "string",
-                                    "description": "The domain of the service",
+                                    "description": "The domain of the service.",
                                 },
                                 "service": {
                                     "type": "string",
@@ -90,21 +183,51 @@ DEFAULT_CONF_FUNCTIONS = [
                                     "description": "The service data object to indicate what to control.",
                                     "properties": {
                                         "entity_id": {
-                                            "type": "string",
-                                            "description": "The entity_id retrieved from available devices. It must start with domain, followed by dot character.",
-                                        }
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string",
+                                                "description": "The entity_id retrieved from available devices. It must start with domain, followed by dot character.",
+                                            },
+                                        },
+                                        "area_id": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string",
+                                                "description": "The id retrieved from areas. You can specify only area_id without entity_id to act on all entities in that area",
+                                            },
+                                        },
                                     },
-                                    "required": ["entity_id"],
                                 },
                             },
                             "required": ["domain", "service", "service_data"],
                         },
-                    }
+                    },
                 },
             },
         },
         "function": {"type": "native", "name": "execute_service"},
-    }
+    },
+    {
+        "spec": {
+            "name": "get_attributes",
+            "description": "Get attributes of entity or multiple entities.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity_id": {
+                        "type": "array",
+                        "description": "entity_id of entity or multiple entities",
+                        "items": {"type": "string"},
+                    }
+                },
+                "required": ["entity_id"],
+            },
+        },
+        "function": {
+            "type": "template",
+            "value_template": "```csv\nentity,attributes\n{%for entity in entity_id%}\n{{entity}},{{states[entity].attributes}}\n{%endfor%}\n```",
+        },
+    },
 ]
 CONF_USE_TOOLS = "use_tools"
 DEFAULT_USE_TOOLS = True
@@ -116,7 +239,7 @@ DEFAULT_CONTEXT_TRUNCATE_STRATEGY = CONTEXT_TRUNCATE_STRATEGIES[0]["key"]
 
 # Service Tier options (for GPT-5 models)
 CONF_SERVICE_TIER = "service_tier"
-DEFAULT_SERVICE_TIER = "auto"
+DEFAULT_SERVICE_TIER = "flex"
 SERVICE_TIER_OPTIONS = ["auto", "default", "flex", "priority"]
 
 # Reasoning Effort options (for o1, o3, o4, gpt-5 models)
