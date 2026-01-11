@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
+from openai import OpenAIError
 import yaml
 
 from homeassistant.components import conversation
@@ -20,6 +21,7 @@ from homeassistant.components.homeassistant.exposed_entities import async_should
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import MATCH_ALL
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er, intent, llm, template
 from homeassistant.helpers.chat_session import async_get_chat_session
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -121,12 +123,34 @@ class ExtendedOpenAIAgentEntity(
         chat_log.content[0] = conversation.SystemContent(content=system_prompt)
 
         # Call the LLM
-        await self._async_handle_chat_log(
-            chat_log,
-            custom_functions=custom_functions,
-            exposed_entities=exposed_entities,
-            llm_context=llm_context,
-        )
+
+        try:
+            await self._async_handle_chat_log(
+                chat_log,
+                custom_functions=custom_functions,
+                exposed_entities=exposed_entities,
+                llm_context=llm_context,
+            )
+        except OpenAIError as err:
+            _LOGGER.error(err)
+            intent_response = intent.IntentResponse(language=user_input.language)
+            intent_response.async_set_error(
+                intent.IntentResponseErrorCode.UNKNOWN,
+                f"Sorry, I had a problem talking to OpenAI: {err}",
+            )
+            return conversation.ConversationResult(
+                response=intent_response, conversation_id=user_input.conversation_id
+            )
+        except HomeAssistantError as err:
+            _LOGGER.error(err, exc_info=err)
+            intent_response = intent.IntentResponse(language=user_input.language)
+            intent_response.async_set_error(
+                intent.IntentResponseErrorCode.UNKNOWN,
+                f"Something went wrong: {err}",
+            )
+            return conversation.ConversationResult(
+                response=intent_response, conversation_id=user_input.conversation_id
+            )
 
         # Fire conversation finished event
         self.hass.bus.async_fire(
