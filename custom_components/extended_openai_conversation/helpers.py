@@ -714,16 +714,17 @@ class CompositeFunctionExecutor(FunctionExecutor):
     ):
         config = function
         sequence = config["sequence"]
+        new_arguments = arguments.copy()
 
         for executor_config in sequence:
             function_executor = get_function_executor(executor_config["type"])
             result = await function_executor.execute(
-                hass, executor_config, arguments, llm_context, exposed_entities
+                hass, executor_config, new_arguments, llm_context, exposed_entities
             )
 
             response_variable = executor_config.get("response_variable")
             if response_variable:
-                arguments[response_variable] = result
+                new_arguments[response_variable] = result
 
         return result
 
