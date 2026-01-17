@@ -52,7 +52,7 @@ Current Time: {{now()}}
 Available Devices:
 ```csv
 entity_id,name,state,aliases,attributes
-{% for entity in exposed_entities -%}
+{% for entity in extended_openai.exposed_entities() -%}
 {{ entity.entity_id }},{{ entity.name }},{{ entity.state }},{{entity.aliases | join('/')}},{{get_exposed_attributes(entity.entity_id)}}
 {% endfor -%}
 ```
