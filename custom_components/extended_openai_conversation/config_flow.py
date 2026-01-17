@@ -54,6 +54,8 @@ from .const import (
     CONF_USE_TOOLS,
     CONTEXT_TRUNCATE_STRATEGIES,
     DEFAULT_ADVANCED_OPTIONS,
+    DEFAULT_AI_TASK_NAME,
+    DEFAULT_AI_TASK_OPTIONS,
     DEFAULT_API_PROVIDER,
     DEFAULT_CHAT_MODEL,
     DEFAULT_CONF_BASE_URL,
@@ -188,7 +190,13 @@ class ExtendedOpenAIConversationConfigFlow(ConfigFlow, domain=DOMAIN):
                         "data": dict(DEFAULT_OPTIONS),
                         "title": DEFAULT_CONVERSATION_NAME,
                         "unique_id": None,
-                    }
+                    },
+                    {
+                        "subentry_type": "ai_task_data",
+                        "data": dict(DEFAULT_AI_TASK_OPTIONS),
+                        "title": DEFAULT_AI_TASK_NAME,
+                        "unique_id": None,
+                    },
                 ],
             )
 
@@ -202,7 +210,10 @@ class ExtendedOpenAIConversationConfigFlow(ConfigFlow, domain=DOMAIN):
         cls, config_entry: ConfigEntry
     ) -> dict[str, type[ConfigSubentryFlow]]:
         """Return subentries supported by this integration."""
-        return {"conversation": ExtendedOpenAISubentryFlowHandler}
+        return {
+            "conversation": ExtendedOpenAISubentryFlowHandler,
+            "ai_task_data": ExtendedOpenAIAITaskSubentryFlowHandler,
+        }
 
 
 class ExtendedOpenAISubentryFlowHandler(ConfigSubentryFlow):
@@ -413,3 +424,76 @@ class ExtendedOpenAISubentryFlowHandler(ConfigSubentryFlow):
         }
 
         return schema
+
+
+class ExtendedOpenAIAITaskSubentryFlowHandler(ConfigSubentryFlow):
+    """Flow for managing AI Task subentries."""
+
+    options: dict[str, Any]
+
+    @property
+    def _is_new(self) -> bool:
+        """Return if this is a new subentry."""
+        return self.source == "user"
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Add a subentry."""
+        self.options = dict(DEFAULT_AI_TASK_OPTIONS)
+        return await self.async_step_init()
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Handle reconfiguration of a subentry."""
+        self.options = dict(self._get_reconfigure_subentry().data)
+        return await self.async_step_init()
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Manage the options."""
+        # Abort if entry is not loaded
+        if self._get_entry().state != ConfigEntryState.LOADED:
+            return self.async_abort(reason="entry_not_loaded")
+
+        if user_input is not None:
+            if self._is_new:
+                title = user_input.get(CONF_NAME, DEFAULT_AI_TASK_NAME)
+                if CONF_NAME in user_input:
+                    del user_input[CONF_NAME]
+                return self.async_create_entry(
+                    title=title,
+                    data=user_input,
+                )
+            return self.async_update_and_abort(
+                self._get_entry(),
+                self._get_reconfigure_subentry(),
+                data=user_input,
+            )
+
+        schema: dict = {}
+
+        if self._is_new:
+            schema[vol.Optional(CONF_NAME, default=DEFAULT_AI_TASK_NAME)] = str
+
+        schema.update(
+            {
+                vol.Optional(
+                    CONF_CHAT_MODEL,
+                    default=DEFAULT_CHAT_MODEL,
+                ): str,
+                vol.Optional(
+                    CONF_MAX_TOKENS,
+                    default=DEFAULT_MAX_TOKENS,
+                ): int,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema(schema), self.options
+            ),
+        )

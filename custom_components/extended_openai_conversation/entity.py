@@ -8,19 +8,20 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from openai import AsyncClient, AsyncStream
-from openai._exceptions import OpenAIError
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
     ChatCompletionChunk,
     ChatCompletionMessageParam,
     ChatCompletionToolParam,
 )
+import voluptuous as vol
+from voluptuous_openapi import convert
 
 from homeassistant.components import conversation
 from homeassistant.config_entries import ConfigSubentry
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, llm
 from homeassistant.helpers.entity import Entity
+from homeassistant.util import slugify
 
 from .const import (
     CONF_CHAT_MODEL,
@@ -55,6 +56,47 @@ _LOGGER = logging.getLogger(__name__)
 
 # Max number of back and forth with the LLM to generate a response
 MAX_TOOL_ITERATIONS = 10
+
+
+def _adjust_schema(schema: dict[str, Any]) -> None:
+    """Adjust the schema to be compatible with OpenAI API."""
+    if schema["type"] == "object":
+        schema.setdefault("strict", True)
+        schema.setdefault("additionalProperties", False)
+        if "properties" not in schema:
+            return
+
+        if "required" not in schema:
+            schema["required"] = []
+
+        # Ensure all properties are required
+        for prop, prop_info in schema["properties"].items():
+            _adjust_schema(prop_info)
+            if prop not in schema["required"]:
+                prop_info["type"] = [prop_info["type"], "null"]
+                schema["required"].append(prop)
+
+    elif schema["type"] == "array":
+        if "items" not in schema:
+            return
+
+        _adjust_schema(schema["items"])
+
+
+def _format_structured_output(
+    schema: vol.Schema, llm_api: llm.APIInstance | None
+) -> dict[str, Any]:
+    """Format the schema to be compatible with OpenAI API."""
+    result: dict[str, Any] = convert(
+        schema,
+        custom_serializer=(
+            llm_api.custom_serializer if llm_api else llm.selector_serializer
+        ),
+    )
+
+    _adjust_schema(result)
+
+    return result
 
 
 def _convert_content_to_param(
@@ -129,6 +171,8 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
         custom_functions: list[dict[str, Any]],
         exposed_entities: list[dict[str, Any]],
         llm_context: llm.LLMContext | None = None,
+        structure_name: str | None = None,
+        structure: vol.Schema | None = None,
     ) -> None:
         """Generate an answer for the chat log with streaming support."""
         options = self.subentry.data
@@ -192,6 +236,17 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
             api_kwargs["service_tier"] = options.get(
                 CONF_SERVICE_TIER, DEFAULT_SERVICE_TIER
             )
+
+        # Add structured output format if provided
+        if structure is not None:
+            api_kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": slugify(structure_name),
+                    "strict": True,
+                    "schema": _format_structured_output(structure, chat_log.llm_api),
+                },
+            }
 
         # Add tools if available
         tool_kwargs: dict[str, Any] = {}

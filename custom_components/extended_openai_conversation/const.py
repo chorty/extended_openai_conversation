@@ -3,6 +3,7 @@
 DOMAIN = "extended_openai_conversation"
 DEFAULT_NAME = "Extended OpenAI Conversation"
 DEFAULT_CONVERSATION_NAME = "Extended OpenAI Conversation"
+DEFAULT_AI_TASK_NAME = "Extended OpenAI AI Task"
 
 CONF_ORGANIZATION = "organization"
 CONF_BASE_URL = "base_url"
@@ -283,3 +284,9 @@ MODEL_CONFIG_PATTERNS = [
         },
     },
 ]
+
+# AI Task default options (simpler than conversation - no prompt, just model/token settings)
+DEFAULT_AI_TASK_OPTIONS = {
+    CONF_CHAT_MODEL: DEFAULT_CHAT_MODEL,
+    CONF_MAX_TOKENS: DEFAULT_MAX_TOKENS,
+}
