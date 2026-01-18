@@ -232,8 +232,6 @@ DEFAULT_CONF_FUNCTIONS = [
         },
     },
 ]
-CONF_USE_TOOLS = "use_tools"
-DEFAULT_USE_TOOLS = True
 CONF_CONTEXT_THRESHOLD = "context_threshold"
 DEFAULT_CONTEXT_THRESHOLD = 13000
 CONTEXT_TRUNCATE_STRATEGIES = [{"key": "clear", "label": "Clear All Messages"}]
