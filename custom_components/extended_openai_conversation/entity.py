@@ -33,7 +33,6 @@ from .const import (
     CONF_SERVICE_TIER,
     CONF_TEMPERATURE,
     CONF_TOP_P,
-    CONF_USE_TOOLS,
     DEFAULT_CHAT_MODEL,
     DEFAULT_CONTEXT_THRESHOLD,
     DEFAULT_CONTEXT_TRUNCATE_STRATEGY,
@@ -43,7 +42,6 @@ from .const import (
     DEFAULT_SERVICE_TIER,
     DEFAULT_TEMPERATURE,
     DEFAULT_TOP_P,
-    DEFAULT_USE_TOOLS,
     DOMAIN,
 )
 from .exceptions import FunctionNotFound, ParseArgumentsFailed, TokenLengthExceededError
@@ -177,7 +175,6 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
         """Generate an answer for the chat log with streaming support."""
         options = self.subentry.data
         model = options.get(CONF_CHAT_MODEL, DEFAULT_CHAT_MODEL)
-        use_tools = options.get(CONF_USE_TOOLS, DEFAULT_USE_TOOLS)
         max_function_calls = options.get(
             CONF_MAX_FUNCTION_CALLS_PER_CONVERSATION,
             DEFAULT_MAX_FUNCTION_CALLS_PER_CONVERSATION,
@@ -188,17 +185,14 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
 
         messages = _convert_content_to_param(chat_log.content)
 
-        # Build tools list from custom functions only
-        tools: list[ChatCompletionToolParam] = []
-
-        if use_tools:
-            for func_spec in custom_functions:
-                tools.append(
-                    ChatCompletionToolParam(
-                        type="function",
-                        function=func_spec["spec"],
-                    )
-                )
+        # Build tools list from custom functions
+        tools: list[ChatCompletionToolParam] = [
+            ChatCompletionToolParam(
+                type="function",
+                function=func_spec["spec"],
+            )
+            for func_spec in custom_functions
+        ]
 
         # Build API parameters based on model configuration
         api_kwargs: dict[str, Any] = {
