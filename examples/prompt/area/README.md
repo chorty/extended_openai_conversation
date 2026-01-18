@@ -21,7 +21,7 @@ Current Area: {{area_id(current_device_id)}}
 Available Devices:
 ```csv
 entity_id,name,state,area_id,aliases
-{% for entity in exposed_entities -%}
+{% for entity in extended_openai.exposed_entities() -%}
 {{ entity.entity_id }},{{ entity.name }},{{ entity.state }},{{area_id(entity.entity_id)}},{{entity.aliases | join('/')}}
 {% endfor -%}
 ```
@@ -52,7 +52,7 @@ Current Area: {{area_name(current_device_id)}}
 
 An overview of the areas and the available devices:
 {%- set area_entities = namespace(mapping={}) %}
-{%- for entity in exposed_entities %}
+{%- for entity in extended_openai.exposed_entities() %}
     {%- set current_area_id = area_id(entity.entity_id) or "etc" %}
     {%- set entities = (area_entities.mapping.get(current_area_id) or []) + [entity] %}
     {%- set area_entities.mapping = dict(area_entities.mapping, **{current_area_id: entities}) -%}
