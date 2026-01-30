@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import asyncio
 from datetime import timedelta
 from functools import partial
 import logging
 import os
+from pathlib import Path
 import re
 import sqlite3
 import time
@@ -26,10 +28,9 @@ from homeassistant.components import (
     rest,
     scrape,
 )
-from homeassistant.components.automation.config import _async_validate_config_item
 from homeassistant.components.homeassistant.exposed_entities import async_should_expose
 from homeassistant.components.recorder import history as recorder_history
-from homeassistant.components.script.config import SCRIPT_ENTITY_SCHEMA
+from homeassistant.components.script import config as script_config
 from homeassistant.config import AUTOMATION_CONFIG_PATH
 from homeassistant.const import (
     CONF_ATTRIBUTE,
@@ -53,12 +54,18 @@ import homeassistant.util.dt as dt_util
 
 from .const import (
     CONF_PAYLOAD_TEMPLATE,
+    DEFAULT_ALLOWED_DIRS,
     DEFAULT_MODEL_CONFIG,
     DEFAULT_TOKEN_PARAM,
+    DEFAULT_WORKING_DIRECTORY,
     DOMAIN,
     EVENT_AUTOMATION_REGISTERED,
+    FILE_READ_SIZE_LIMIT,
     MODEL_CONFIG_PATTERNS,
     MODEL_TOKEN_PARAMETER_SUPPORT,
+    SHELL_DENY_PATTERNS,
+    SHELL_OUTPUT_LIMIT,
+    SHELL_TIMEOUT,
 )
 from .exceptions import (
     CallServiceError,
@@ -245,7 +252,7 @@ async def get_authenticated_client(
 
 class FunctionExecutor(ABC):
     def __init__(self, data_schema: vol.Schema = vol.Schema({})) -> None:
-        """initialize function executor"""
+        """Initialize function executor"""
         self.data_schema = data_schema.extend({vol.Required("type"): str})
 
     def to_arguments(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -287,12 +294,12 @@ class FunctionExecutor(ABC):
         llm_context: llm.LLMContext | None,
         exposed_entities: list[dict[str, Any]],
     ) -> Any:
-        """execute function"""
+        """Execute function"""
 
 
 class NativeFunctionExecutor(FunctionExecutor):
     def __init__(self) -> None:
-        """initialize native function"""
+        """Initialize native function"""
         super().__init__(vol.Schema({vol.Required("name"): str}))
 
     async def execute(
@@ -405,7 +412,7 @@ class NativeFunctionExecutor(FunctionExecutor):
         if isinstance(automation_config, dict):
             config.update(automation_config)
 
-        await _async_validate_config_item(hass, config, True, False)
+        await automation.config._async_validate_config_item(hass, config, True, False)
 
         automations = [config]
         with open(
@@ -552,8 +559,8 @@ class NativeFunctionExecutor(FunctionExecutor):
 
 class ScriptFunctionExecutor(FunctionExecutor):
     def __init__(self) -> None:
-        """initialize script function"""
-        super().__init__(SCRIPT_ENTITY_SCHEMA)
+        """Initialize script function"""
+        super().__init__(script_config.SCRIPT_ENTITY_SCHEMA)
 
     async def execute(
         self,
@@ -581,7 +588,7 @@ class ScriptFunctionExecutor(FunctionExecutor):
 
 class TemplateFunctionExecutor(FunctionExecutor):
     def __init__(self) -> None:
-        """initialize template function"""
+        """Initialize template function"""
         super().__init__(
             vol.Schema(
                 {
@@ -607,7 +614,7 @@ class TemplateFunctionExecutor(FunctionExecutor):
 
 class RestFunctionExecutor(FunctionExecutor):
     def __init__(self) -> None:
-        """initialize Rest function"""
+        """Initialize Rest function"""
         super().__init__(
             vol.Schema(rest.RESOURCE_SCHEMA).extend(
                 {
@@ -642,7 +649,7 @@ class RestFunctionExecutor(FunctionExecutor):
 
 class ScrapeFunctionExecutor(FunctionExecutor):
     def __init__(self) -> None:
-        """initialize Scrape function"""
+        """Initialize Scrape function"""
         super().__init__(
             scrape.COMBINED_SCHEMA.extend(
                 {
@@ -736,7 +743,7 @@ class ScrapeFunctionExecutor(FunctionExecutor):
 
 class CompositeFunctionExecutor(FunctionExecutor):
     def __init__(self) -> None:
-        """initialize composite function"""
+        """Initialize composite function"""
         super().__init__(
             vol.Schema(
                 {
@@ -784,7 +791,7 @@ class CompositeFunctionExecutor(FunctionExecutor):
 
 class SqliteFunctionExecutor(FunctionExecutor):
     def __init__(self) -> None:
-        """initialize sqlite function"""
+        """Initialize sqlite function"""
         super().__init__(
             vol.Schema(
                 {
@@ -872,6 +879,470 @@ class SqliteFunctionExecutor(FunctionExecutor):
             return result
 
 
+class FileFunctionExecutor(FunctionExecutor):
+    """Base class for file-related function executors."""
+
+    def get_working_dir(self, hass: HomeAssistant) -> Path:
+        """Get the default working directory for file operations.
+
+        Args:
+            hass: Home Assistant instance
+
+        Returns:
+            Path to the working directory
+        """
+        return Path(hass.config.config_dir) / DEFAULT_WORKING_DIRECTORY
+
+    def to_absolute_path(
+        self, hass: HomeAssistant, path: str, base_dir: Path | None = None
+    ) -> Path:
+        """Convert path to absolute path.
+
+        Args:
+            hass: Home Assistant instance
+            path: Path to convert (can be relative or absolute)
+            base_dir: Base directory for relative paths (defaults to config_dir)
+
+        Returns:
+            Absolute path
+        """
+        p = Path(path)
+        if p.is_absolute():
+            return p
+
+        if base_dir is None:
+            base_dir = Path(hass.config.config_dir)
+
+        return base_dir / p
+
+    def _resolve_path(
+        self,
+        hass: HomeAssistant,
+        path: str,
+        allow_dirs: list[str],
+    ) -> Path:
+        """Resolve path relative to working directory.
+
+        Args:
+            hass: Home Assistant instance
+            path: Path to resolve
+            allow_dirs: List of allowed directory paths (absolute)
+
+        Returns:
+            Resolved absolute path
+
+        Raises:
+            PermissionError: If path is not within allowed directories
+        """
+        workdir = self.get_working_dir(hass)
+        target = self.to_absolute_path(hass, path, workdir).resolve()
+
+        # Check against allowed directories (already resolved to absolute paths)
+        allowed = False
+        for allow_dir in allow_dirs:
+            allowed_path = Path(allow_dir).resolve()
+
+            if str(target).startswith(str(allowed_path)):
+                allowed = True
+                break
+
+        if not allowed:
+            raise PermissionError(
+                f"Access denied: path '{path}' is not in allowed directories"
+            )
+
+        return target
+
+    def _render_allow_dirs(
+        self,
+        hass: HomeAssistant,
+        allow_dirs: list[Template],
+        arguments: dict[str, Any],
+    ) -> list[str]:
+        """Render allow_dir templates.
+
+        Args:
+            hass: Home Assistant instance
+            allow_dirs: List of allow_dir templates from function config
+            arguments: Template arguments
+
+        Returns:
+            List of rendered directory paths
+
+        Always includes DEFAULT_ALLOWED_DIRS and adds custom allow_dir if specified.
+        """
+        # Always include default allowed directories (resolved to absolute paths)
+        all_allow_dirs = [
+            str(self.to_absolute_path(hass, d)) for d in DEFAULT_ALLOWED_DIRS
+        ]
+
+        # Add custom allow_dir if specified
+        if allow_dirs:
+            template_arguments = {
+                "config_dir": hass.config.config_dir,
+            }
+            template_arguments.update(arguments)
+            custom_dirs = [
+                template.async_render(template_arguments, parse_result=False)
+                for template in allow_dirs
+            ]
+            all_allow_dirs.extend(custom_dirs)
+
+        return all_allow_dirs
+
+
+class BashFunctionExecutor(FileFunctionExecutor):
+    """Execute shell commands with security controls."""
+
+    def __init__(self) -> None:
+        """Initialize bash function."""
+        schema = vol.Schema(
+            {
+                vol.Required("command"): cv.template,
+                vol.Optional("cwd"): cv.template,
+                vol.Optional("restrict_to_workspace", default=True): bool,
+                vol.Optional("allow_patterns"): vol.All(cv.ensure_list, [str]),
+            }
+        )
+        super().__init__(schema)
+
+    def _guard_command(
+        self,
+        command: str,
+        cwd: str | Path,
+        restrict_to_workspace: bool,
+        allow_patterns: list[str] | None = None,
+    ) -> None:
+        """Validate command against security policies.
+
+        Args:
+            command: Shell command to validate
+            cwd: Working directory where command will be executed
+            restrict_to_workspace: Whether to restrict paths to DEFAULT_ALLOWED_DIRS
+            allow_dirs: List of resolved absolute paths that are allowed (only used if restrict_to_workspace is True)
+            allow_patterns: Optional list of regex patterns for command allowlist
+        """
+        # Deny patterns check
+        for pattern in SHELL_DENY_PATTERNS:
+            if re.search(pattern, command, re.IGNORECASE):
+                raise ValueError(
+                    f"Command blocked by security policy: matches pattern '{pattern}'"
+                )
+
+        # Allow patterns check
+        if allow_patterns:
+            lower = command.lower()
+            if not any(re.search(p, lower) for p in allow_patterns):
+                raise ValueError("Command blocked: not in allowlist")
+
+        # Path restriction check when restrict_to_workspace is enabled
+        if restrict_to_workspace:
+            # Validate working directory is within allowed directories
+
+            # Block path traversal patterns
+            if "../" in command or "..\\" in command:
+                raise ValueError("Command blocked: path traversal detected")
+
+            # Extract and validate paths in command
+            win_paths = re.findall(r"[A-Za-z]:\\[^\\\"\' ]+", command)
+            posix_paths = re.findall(r"(?<!\w)/[^\s\"\']+", command)
+
+            for raw in win_paths + posix_paths:
+                try:
+                    p = Path(raw).resolve()
+                except Exception:
+                    continue
+
+                if cwd not in p.parents and p != cwd:
+                    raise ValueError(
+                        f"Command blocked by safety guard (path '{raw}' outside working dir).\nSet 'restrict_to_workspace: false' to allow command outside working directory."
+                    )
+
+    async def execute(
+        self,
+        hass: HomeAssistant,
+        function,
+        arguments,
+        llm_context: llm.LLMContext | None,
+        exposed_entities,
+    ):
+        """Execute shell command with security controls.
+
+        Args:
+            hass: Home Assistant instance
+            function: Function configuration containing command and optional cwd templates
+            arguments: Arguments for rendering templates and optional timeout
+            llm_context: LLM context (unused)
+            exposed_entities: Exposed entities (unused)
+
+        Returns:
+            Command output or error message
+        """
+        # Render command template
+        command_template = function.get("command")
+        command = command_template.async_render(arguments, parse_result=False)
+
+        # Render cwd template if provided
+        cwd_template = function.get("cwd")
+        if cwd_template:
+            cwd = Path(cwd_template.async_render(arguments, parse_result=False))
+        else:
+            cwd = self.get_working_dir(hass)
+
+        timeout = arguments.get("timeout", SHELL_TIMEOUT)
+        restrict_to_workspace = function.get("restrict_to_workspace", True)
+        allow_patterns = function.get("allow_patterns", [])
+
+        # Security validation
+        try:
+            self._guard_command(
+                command,
+                cwd=cwd,
+                restrict_to_workspace=restrict_to_workspace,
+                allow_patterns=allow_patterns,
+            )
+        except ValueError as err:
+            return {"error": str(err)}
+
+        try:
+            process = await asyncio.create_subprocess_shell(
+                command,
+                cwd=str(cwd),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=timeout
+                )
+            except TimeoutError:
+                process.kill()
+                return {"error": f"Command timed out after {timeout} seconds"}
+
+            # Decode output with truncation
+            stdout_text = stdout.decode("utf-8", errors="replace")
+            stderr_text = stderr.decode("utf-8", errors="replace") if stderr else ""
+
+            # Truncate output if too large
+            if len(stdout_text) > SHELL_OUTPUT_LIMIT:
+                stdout_text = (
+                    stdout_text[:SHELL_OUTPUT_LIMIT]
+                    + "\n... (truncated, output too large)"
+                )
+            if len(stderr_text) > SHELL_OUTPUT_LIMIT:
+                stderr_text = (
+                    stderr_text[:SHELL_OUTPUT_LIMIT]
+                    + "\n... (truncated, output too large)"
+                )
+
+            result = {
+                "exit_code": process.returncode,
+                "stdout": stdout_text,
+            }
+
+            if stderr_text:
+                result["stderr"] = stderr_text
+
+        except Exception as e:
+            _LOGGER.error(e)
+            return {"error": str(e)}
+
+        return result
+
+
+class ReadFileFunctionExecutor(FileFunctionExecutor):
+    """Read file contents."""
+
+    def __init__(self) -> None:
+        """Initialize read file function."""
+        schema = vol.Schema(
+            {
+                vol.Required("path"): cv.template,
+                vol.Optional("allow_dir"): vol.All(cv.ensure_list, [cv.template]),
+            }
+        )
+        super().__init__(schema)
+
+    async def execute(
+        self,
+        hass: HomeAssistant,
+        function,
+        arguments,
+        llm_context: llm.LLMContext | None,
+        exposed_entities,
+    ):
+        """Read file contents."""
+        path_template = function.get("path")
+        path_str = path_template.async_render(arguments, parse_result=False)
+        allow_dirs = self._render_allow_dirs(
+            hass, function.get("allow_dir", []), arguments
+        )
+
+        try:
+            target_path = self._resolve_path(hass, path_str, allow_dirs)
+
+            if not target_path.exists():
+                return {"error": f"File not found: {path_str}"}
+
+            if not target_path.is_file():
+                return {"error": f"Not a file: {path_str}"}
+
+            # Check file size
+            file_size = target_path.stat().st_size
+            if file_size > FILE_READ_SIZE_LIMIT:
+                return {
+                    "error": f"File too large: {file_size} bytes (limit: {FILE_READ_SIZE_LIMIT})"
+                }
+
+            # Read file
+            content = await hass.async_add_executor_job(
+                partial(target_path.read_text, encoding="utf-8")
+            )
+
+        except Exception as e:
+            _LOGGER.error(e)
+            return {"error": str(e)}
+
+        return {"content": content, "size": file_size}
+
+
+class WriteFileFunctionExecutor(FileFunctionExecutor):
+    """Write content to file."""
+
+    def __init__(self) -> None:
+        """Initialize write file function."""
+        schema = vol.Schema(
+            {
+                vol.Required("path"): cv.template,
+                vol.Required("content"): cv.template,
+                vol.Optional("allow_dir"): vol.All(cv.ensure_list, [cv.template]),
+            }
+        )
+        super().__init__(schema)
+
+    async def execute(
+        self,
+        hass: HomeAssistant,
+        function,
+        arguments,
+        llm_context: llm.LLMContext | None,
+        exposed_entities,
+    ):
+        """Write content to file."""
+        path_template = function.get("path")
+        path_str = path_template.async_render(arguments, parse_result=False)
+        content_template = function.get("content")
+        content = content_template.async_render(arguments, parse_result=False)
+        allow_dirs = self._render_allow_dirs(
+            hass, function.get("allow_dir", []), arguments
+        )
+
+        try:
+            target_path = self._resolve_path(hass, path_str, allow_dirs)
+
+            # Create parent directories if needed
+            # await hass.async_add_executor_job(
+            #     partial(target_path.parent.mkdir, parents=True, exist_ok=True)
+            # )
+
+            # Write file
+            await hass.async_add_executor_job(
+                partial(target_path.write_text, content, encoding="utf-8")
+            )
+
+            bytes_written = len(content.encode("utf-8"))
+
+        except Exception as err:
+            _LOGGER.exception("File write error: %s", err)
+            return {"error": str(err)}
+
+        return {
+            "success": True,
+            "path": str(target_path),
+            "bytes_written": bytes_written,
+        }
+
+
+class EditFileFunctionExecutor(FileFunctionExecutor):
+    """Edit file with find-and-replace."""
+
+    def __init__(self) -> None:
+        """Initialize edit file function."""
+        schema = vol.Schema(
+            {
+                vol.Required("path"): cv.template,
+                vol.Required("old_text"): cv.template,
+                vol.Required("new_text"): cv.template,
+                vol.Optional("allow_dir"): vol.All(cv.ensure_list, [cv.template]),
+            }
+        )
+        super().__init__(schema)
+
+    async def execute(
+        self,
+        hass: HomeAssistant,
+        function,
+        arguments,
+        llm_context: llm.LLMContext | None,
+        exposed_entities,
+    ):
+        """Edit file with find-and-replace."""
+        path_template = function.get("path")
+        path_str = path_template.async_render(arguments, parse_result=False)
+        old_text_template = function.get("old_text")
+        old_text = old_text_template.async_render(arguments, parse_result=False)
+        new_text_template = function.get("new_text")
+        new_text = new_text_template.async_render(arguments, parse_result=False)
+        allow_dirs = self._render_allow_dirs(
+            hass, function.get("allow_dir", []), arguments
+        )
+
+        try:
+            target_path = self._resolve_path(hass, path_str, allow_dirs)
+
+            if not target_path.exists():
+                return {"error": f"File not found: {path_str}"}
+
+            if not target_path.is_file():
+                return {"error": f"Not a file: {path_str}"}
+
+            # Read current content
+            content = await hass.async_add_executor_job(
+                partial(target_path.read_text, encoding="utf-8")
+            )
+
+            # Check for text to replace
+            if old_text not in content:
+                return {"error": f"Text not found in file: {old_text[:50]}..."}
+
+            # Check for multiple occurrences
+            occurrence_count = content.count(old_text)
+            if occurrence_count > 1:
+                return {
+                    "error": f"Text appears {occurrence_count} times in file. "
+                    "Please provide more specific text to ensure single replacement."
+                }
+
+            # Perform replacement
+            new_content = content.replace(old_text, new_text, 1)
+
+            # Write back
+            await hass.async_add_executor_job(
+                partial(target_path.write_text, new_content, encoding="utf-8")
+            )
+
+        except Exception as e:
+            _LOGGER.error(e)
+            return {"error": str(e)}
+
+        return {
+            "success": True,
+            "path": str(target_path),
+            "replacements": 1,
+        }
+
+
 FUNCTION_EXECUTORS: dict[str, FunctionExecutor] = {
     "native": NativeFunctionExecutor(),
     "script": ScriptFunctionExecutor(),
@@ -880,4 +1351,8 @@ FUNCTION_EXECUTORS: dict[str, FunctionExecutor] = {
     "scrape": ScrapeFunctionExecutor(),
     "composite": CompositeFunctionExecutor(),
     "sqlite": SqliteFunctionExecutor(),
+    "bash": BashFunctionExecutor(),
+    "read_file": ReadFileFunctionExecutor(),
+    "write_file": WriteFileFunctionExecutor(),
+    "edit_file": EditFileFunctionExecutor(),
 }

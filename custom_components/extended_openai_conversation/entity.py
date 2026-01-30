@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 # Max number of back and forth with the LLM to generate a response
-MAX_TOOL_ITERATIONS = 10
+MAX_TOOL_ITERATIONS = 20
 
 
 def _shorten_tool_call_id(tool_call_id: str) -> str:
@@ -274,7 +274,7 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
         for n_requests in range(MAX_TOOL_ITERATIONS):
             # Update tool_choice based on function call count
             # -1 means unlimited function calls
-            if tools and max_function_calls >= 0 and n_requests >= max_function_calls:
+            if tools and 0 <= max_function_calls <= n_requests:
                 tool_kwargs["tool_choice"] = "none"
 
             _LOGGER.info("Prompt for %s: %s", model, json.dumps(messages))

@@ -1,0 +1,76 @@
+- spec:
+    name: edit_test_file
+    description: Edit a test file
+    parameters:
+      type: object
+      properties:
+        filename:
+          type: string
+          description: Name of file to edit
+        old_text:
+          type: string
+          description: Text to replace
+        new_text:
+          type: string
+          description: New text
+      required:
+      - filename
+      - old_text
+      - new_text
+  function:
+    type: edit_file
+    path: "{{ filename }}"
+    old_text: "{{ old_text }}"
+    new_text: "{{ new_text }}"
+
+- spec:
+    name: edit_with_custom_allow_dir
+    description: Edit file in custom allowed directory
+    parameters:
+      type: object
+      properties:
+        filepath:
+          type: string
+          description: Path to file
+        old_text:
+          type: string
+          description: Text to replace
+        new_text:
+          type: string
+          description: New text
+      required:
+      - filepath
+      - old_text
+      - new_text
+  function:
+    type: edit_file
+    path: "{{ filepath }}"
+    old_text: "{{ old_text }}"
+    new_text: "{{ new_text }}"
+    allow_dir:
+    - "/tmp"
+
+- spec:
+    name: edit_unicode_file
+    description: Edit file with unicode content
+    parameters:
+      type: object
+      properties:
+        filename:
+          type: string
+          description: Name of file to edit
+        old_text:
+          type: string
+          description: Text to replace
+        new_text:
+          type: string
+          description: New text
+      required:
+      - filename
+      - old_text
+      - new_text
+  function:
+    type: edit_file
+    path: "{{ filename }}"
+    old_text: "{{ old_text }}"
+    new_text: "{{ new_text }}"
