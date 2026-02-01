@@ -643,3 +643,9 @@ logger:
   logs:
     custom_components.extended_openai_conversation: info
 ```
+
+## Fork Management
+If you have a fork of this repository and need to sync with upstream or discard commits:
+
+- [Quick Reference: Discard Commits Ahead of Upstream](QUICK_REFERENCE_DISCARD_COMMITS.md) - Fast command reference
+- [Comprehensive Guide: Discard Commits](DISCARD_COMMITS_GUIDE.md) - Detailed guide with safety tips and recovery options
