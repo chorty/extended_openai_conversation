@@ -7,6 +7,11 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.components import conversation
+from homeassistant.config_entries import ConfigSubentry
+from homeassistant.helpers import device_registry as dr, llm
+from homeassistant.helpers.entity import Entity
+from homeassistant.util import slugify
 from openai import AsyncClient, AsyncStream
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
@@ -16,12 +21,6 @@ from openai.types.chat import (
 )
 import voluptuous as vol
 from voluptuous_openapi import convert
-
-from homeassistant.components import conversation
-from homeassistant.config_entries import ConfigSubentry
-from homeassistant.helpers import device_registry as dr, llm
-from homeassistant.helpers.entity import Entity
-from homeassistant.util import slugify
 
 from .const import (
     CONF_CHAT_MODEL,
@@ -268,9 +267,11 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
             async for content in chat_log.async_add_delta_content_stream(
                 self.entity_id, self._transform_stream(chat_log, stream)
             ):
-                if isinstance(content, conversation.AssistantContent):
-                    if content.tool_calls:
-                        pending_tool_calls.extend(content.tool_calls)
+                if (
+                    isinstance(content, conversation.AssistantContent)
+                    and content.tool_calls
+                ):
+                    pending_tool_calls.extend(content.tool_calls)
 
             if pending_tool_calls:
                 _LOGGER.info("Response Tool Calls %s", pending_tool_calls)
@@ -433,11 +434,13 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
             tool_result={"result": str(result)},
         )
 
-    def should_run_in_background(self, arguments) -> bool:
+    def should_run_in_background(self, arguments: dict[str, Any]) -> bool:
         """Check if function needs delay."""
         return isinstance(arguments, dict) and arguments.get("delay") is not None
 
-    def get_delayed_function(self, function, arguments) -> dict:
+    def get_delayed_function(
+        self, function: dict[str, Any], arguments: dict[str, Any]
+    ) -> dict[str, Any]:
         """Execute function with delay."""
         # create a composite function with delay in script function
         return {

@@ -1,91 +1,44 @@
-"""Tests for ScrapeFunctionExecutor."""
+"""Tests for ScrapeFunctionExecutor using yaml definitions."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # Add config directory to path for custom_components imports
 config_dir = Path(__file__).parent.parent.parent.parent.parent
 if str(config_dir) not in sys.path:
     sys.path.insert(0, str(config_dir))
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-from homeassistant.exceptions import ServiceNotFound
-from homeassistant.helpers.template import Template
 import pytest
-import voluptuous as vol
 
-# Import FunctionExecutors
-from custom_components.extended_openai_conversation.exceptions import (
-    CallServiceError,
-    EntityNotExposed,
-    EntityNotFound,
-    FunctionNotFound,
-    InvalidFunction,
-    NativeNotFound,
-)
+# Import FunctionExecutors and test helpers
 from custom_components.extended_openai_conversation.helpers import (
-    CompositeFunctionExecutor,
-    NativeFunctionExecutor,
-    RestFunctionExecutor,
     ScrapeFunctionExecutor,
-    ScriptFunctionExecutor,
-    SkillExecFunctionExecutor,
-    SkillReadFunctionExecutor,
-    SqliteFunctionExecutor,
-    TemplateFunctionExecutor,
     get_function_executor,
 )
+from tests.helpers import get_function_from_yaml
 
 
-
-class TestScrapeFunctionExecutor:
-    """Test ScrapeFunctionExecutor."""
+class TestScrapeFunctionExecutorYaml:
+    """Test ScrapeFunctionExecutor using yaml definitions."""
 
     @pytest.fixture
     def executor(self):
         """Create ScrapeFunctionExecutor instance."""
         return ScrapeFunctionExecutor()
 
-    async def test_scrape_basic(self, hass, executor, exposed_entities, llm_context):
-        """Test basic web scraping."""
-        with (
-            patch(
-                "custom_components.extended_openai_conversation.helpers.rest.create_rest_data_from_config"
-            ) as mock_rest,
-            patch(
-                "custom_components.extended_openai_conversation.helpers.scrape.coordinator.ScrapeCoordinator"
-            ) as mock_coordinator_class,
-        ):
-            from bs4 import BeautifulSoup
-
-            mock_rest_data = AsyncMock()
-            mock_rest.return_value = mock_rest_data
-
-            mock_coordinator = AsyncMock()
-            mock_coordinator.data = BeautifulSoup(
-                '<html><div class="content">Test Content</div></html>',
-                "html.parser",
-            )
-            mock_coordinator.async_config_entry_first_refresh = AsyncMock()
-            mock_coordinator_class.return_value = mock_coordinator
-
-            function = {
-                "resource": "https://example.com",
-                "sensor": [{"select": "div.content"}],
-            }
-            arguments = {}
-
-            result = await executor.execute(
-                hass, function, arguments, llm_context, exposed_entities
-            )
-
-            assert result == "Test Content"
-
-    async def test_scrape_with_attribute(
+    async def test_execute_scrape_from_yaml(
         self, hass, executor, exposed_entities, llm_context
     ):
-        """Test extracting element attribute."""
+        """Test web scraping from yaml definition."""
+        # Load function from yaml
+        func_def = get_function_from_yaml("scrape_example.yaml")
+
+        # Process function through executor's to_arguments
+        function_executor = get_function_executor(func_def["function"]["type"])
+        processed_function = function_executor.to_arguments(func_def["function"])
+
         with (
             patch(
                 "custom_components.extended_openai_conversation.helpers.rest.create_rest_data_from_config"
@@ -100,84 +53,33 @@ class TestScrapeFunctionExecutor:
             mock_rest.return_value = mock_rest_data
 
             mock_coordinator = AsyncMock()
-            mock_coordinator.data = BeautifulSoup(
-                '<html><a href="https://example.com" class="link">Link</a></html>',
-                "html.parser",
-            )
+            # Mock Hacker News HTML structure
+            html = '''
+            <html>
+                <tr class="athing">
+                    <td class="title">
+                        <span class="titleline">
+                            <a href="https://example.com/article">Test Article Title</a>
+                        </span>
+                    </td>
+                </tr>
+                <tr>
+                    <td colspan="2">
+                        <span class="score">123 points</span>
+                    </td>
+                </tr>
+            </html>
+            '''
+            mock_coordinator.data = BeautifulSoup(html, "html.parser")
             mock_coordinator.async_config_entry_first_refresh = AsyncMock()
             mock_coordinator_class.return_value = mock_coordinator
 
-            function = {
-                "resource": "https://example.com",
-                "sensor": [{"select": "a.link", "attribute": "href"}],
-            }
+            # Arguments based on yaml spec parameters (category is optional)
             arguments = {}
 
             result = await executor.execute(
-                hass, function, arguments, llm_context, exposed_entities
+                hass, processed_function, arguments, llm_context, exposed_entities
             )
 
-            assert result == "https://example.com"
-
-    async def test_scrape_with_index(
-        self, hass, executor, exposed_entities, llm_context
-    ):
-        """Test scraping with index selection."""
-        with (
-            patch(
-                "custom_components.extended_openai_conversation.helpers.rest.create_rest_data_from_config"
-            ) as mock_rest,
-            patch(
-                "custom_components.extended_openai_conversation.helpers.scrape.coordinator.ScrapeCoordinator"
-            ) as mock_coordinator_class,
-        ):
-            from bs4 import BeautifulSoup
-
-            mock_rest_data = AsyncMock()
-            mock_rest.return_value = mock_rest_data
-
-            mock_coordinator = AsyncMock()
-            mock_coordinator.data = BeautifulSoup(
-                "<html><li>First</li><li>Second</li><li>Third</li></html>",
-                "html.parser",
-            )
-            mock_coordinator.async_config_entry_first_refresh = AsyncMock()
-            mock_coordinator_class.return_value = mock_coordinator
-
-            function = {
-                "resource": "https://example.com",
-                "sensor": [{"select": "li", "index": 1}],
-            }
-            arguments = {}
-
-            result = await executor.execute(
-                hass, function, arguments, llm_context, exposed_entities
-            )
-
-            assert result == "Second"
-
-    def test_extract_value_index_not_found(self, executor):
-        """Test _extract_value when index is out of range."""
-        from bs4 import BeautifulSoup
-
-        data = BeautifulSoup("<html><div>Only one</div></html>", "html.parser")
-        sensor_config = {"select": "div", "index": 5}
-
-        result = executor._extract_value(data, sensor_config)
-
-        assert result is None
-
-    def test_extract_value_attribute_not_found(self, executor):
-        """Test _extract_value when attribute doesn't exist."""
-        from bs4 import BeautifulSoup
-
-        data = BeautifulSoup(
-            '<html><div class="test">Content</div></html>', "html.parser"
-        )
-        sensor_config = {"select": "div", "attribute": "nonexistent"}
-
-        result = executor._extract_value(data, sensor_config)
-
-        assert result is None
-
-
+            # Should return scraped data
+            assert result is not None

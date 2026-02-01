@@ -1,0 +1,25 @@
+- spec:
+    name: get_news_headlines
+    description: Scrape latest news headlines from a news website
+    parameters:
+      type: object
+      properties:
+        category:
+          type: string
+          description: News category (technology, business, world, etc.)
+          default: technology
+      required: []
+  function:
+    type: scrape
+    resource_template: "https://news.ycombinator.com/"
+    sensor:
+      - select: ".titleline > a"
+        name: "headline"
+        value_template: "{{ value }}"
+      - select: ".score"
+        name: "score"
+        value_template: "{{ value | regex_findall_index('\\d+') }}"
+      - select: ".titleline > a"
+        name: "url"
+        attribute: "href"
+        value_template: "{{ value }}"

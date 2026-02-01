@@ -1,14 +1,14 @@
 """Tests for FunctionExecutor base class and helper function."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # Add config directory to path for custom_components imports
 config_dir = Path(__file__).parent.parent.parent.parent.parent
 if str(config_dir) not in sys.path:
     sys.path.insert(0, str(config_dir))
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 from homeassistant.exceptions import ServiceNotFound
 from homeassistant.helpers.template import Template
@@ -17,22 +17,14 @@ import voluptuous as vol
 
 # Import FunctionExecutors
 from custom_components.extended_openai_conversation.exceptions import (
-    CallServiceError,
     EntityNotExposed,
     EntityNotFound,
     FunctionNotFound,
     InvalidFunction,
-    NativeNotFound,
 )
 from custom_components.extended_openai_conversation.helpers import (
-    CompositeFunctionExecutor,
     NativeFunctionExecutor,
-    RestFunctionExecutor,
-    ScrapeFunctionExecutor,
     ScriptFunctionExecutor,
-    SkillExecFunctionExecutor,
-    SkillReadFunctionExecutor,
-    SqliteFunctionExecutor,
     TemplateFunctionExecutor,
     get_function_executor,
 )

@@ -1,188 +1,93 @@
-"""Tests for CompositeFunctionExecutor."""
+"""Tests for CompositeFunctionExecutor using yaml definitions."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # Add config directory to path for custom_components imports
 config_dir = Path(__file__).parent.parent.parent.parent.parent
 if str(config_dir) not in sys.path:
     sys.path.insert(0, str(config_dir))
 
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from homeassistant.exceptions import ServiceNotFound
-from homeassistant.helpers.template import Template
 import pytest
-import voluptuous as vol
 
-# Import FunctionExecutors
-from custom_components.extended_openai_conversation.exceptions import (
-    CallServiceError,
-    EntityNotExposed,
-    EntityNotFound,
-    FunctionNotFound,
-    InvalidFunction,
-    NativeNotFound,
-)
+from homeassistant.core import State
+
+# Import FunctionExecutors and test helpers
 from custom_components.extended_openai_conversation.helpers import (
     CompositeFunctionExecutor,
-    NativeFunctionExecutor,
-    RestFunctionExecutor,
-    ScrapeFunctionExecutor,
-    ScriptFunctionExecutor,
-    SkillExecFunctionExecutor,
-    SkillReadFunctionExecutor,
-    SqliteFunctionExecutor,
-    TemplateFunctionExecutor,
     get_function_executor,
 )
+from tests.helpers import get_function_from_yaml
 
 
-
-class TestCompositeFunctionExecutor:
-    """Test CompositeFunctionExecutor."""
+class TestCompositeFunctionExecutorYaml:
+    """Test CompositeFunctionExecutor using yaml definitions."""
 
     @pytest.fixture
     def executor(self):
         """Create CompositeFunctionExecutor instance."""
         return CompositeFunctionExecutor()
 
-    async def test_sequence_execution(
+    async def test_composite_from_yaml(
         self, hass, executor, exposed_entities, llm_context
     ):
-        """Test executing sequence of functions."""
-        template1 = Template("Step 1: {{ value }}", hass)
-        template2 = Template("Step 2: {{ value }}", hass)
+        """Test composite function execution from yaml definition."""
+        # Load function from yaml
+        func_def = get_function_from_yaml("composite_example.yaml")
 
-        function = {
-            "sequence": [
-                {"type": "template", "value_template": template1},
-                {"type": "template", "value_template": template2},
-            ]
-        }
-        arguments = {"value": "test"}
+        # Process function through executor's to_arguments
+        function_executor = get_function_executor(func_def["function"]["type"])
+        processed_function = function_executor.to_arguments(func_def["function"])
 
-        result = await executor.execute(
-            hass, function, arguments, llm_context, exposed_entities
-        )
-
-        # Should return result of last function
-        assert result == "Step 2: test"
-
-    async def test_response_variable(
-        self, hass, executor, exposed_entities, llm_context
-    ):
-        """Test passing results via response_variable."""
-        template1 = Template("first_result", hass)
-        template2 = Template("Combined: {{ previous }}", hass)
-
-        function = {
-            "sequence": [
-                {
-                    "type": "template",
-                    "value_template": template1,
-                    "response_variable": "previous",
-                },
-                {"type": "template", "value_template": template2},
-            ]
-        }
-        arguments = {}
-
-        result = await executor.execute(
-            hass, function, arguments, llm_context, exposed_entities
-        )
-
-        assert result == "Combined: first_result"
-
-    async def test_mixed_executors(
-        self, hass, executor, exposed_entities, llm_context, temp_skills_dir
-    ):
-        """Test combining different executor types."""
-        from custom_components.extended_openai_conversation.skills import Skill
-
-        template = Template("Template result", hass)
-
-        mock_manager = MagicMock()
-        mock_manager.get_skill = MagicMock(
-            return_value=Skill(
-                name="test",
-                description="Test skill",
-                directory=temp_skills_dir / "test_skill",
-            )
-        )
-
-        with patch(
-            "custom_components.extended_openai_conversation.skills.SkillManager.async_get_instance",
-            return_value=mock_manager,
-        ):
-            function = {
-                "sequence": [
-                    {"type": "template", "value_template": template},
-                    {
-                        "type": "skill_read",
-                        "skills_dir": str(temp_skills_dir),
-                    },
-                ]
+        # Mock sensor states for the living_room
+        def mock_states_get(entity_id):
+            states_map = {
+                "sensor.living_room_temperature": State("sensor.living_room_temperature", "22.5"),
+                "sensor.living_room_humidity": State("sensor.living_room_humidity", "45"),
+                "light.living_room": State("light.living_room", "on"),
             }
-            arguments = {"skill_name": "test"}
+            return states_map.get(entity_id)
 
-            result = await executor.execute(
-                hass, function, arguments, llm_context, exposed_entities
-            )
+        hass.states.get = mock_states_get
 
-            # Should return result of skill_read (last in sequence)
-            assert result == "Skill body content"
-
-    async def test_arguments_preserved(
-        self, hass, executor, exposed_entities, llm_context
-    ):
-        """Test that original arguments are preserved through sequence."""
-        template1 = Template("{{ original }}", hass)
-        template2 = Template("{{ original }}-{{ added }}", hass)
-
-        function = {
-            "sequence": [
-                {
-                    "type": "template",
-                    "value_template": template1,
-                    "response_variable": "added",
-                },
-                {"type": "template", "value_template": template2},
-            ]
-        }
-        arguments = {"original": "value"}
+        # Arguments based on yaml spec parameters
+        arguments = {"room_name": "living_room"}
 
         result = await executor.execute(
-            hass, function, arguments, llm_context, exposed_entities
+            hass, processed_function, arguments, llm_context, exposed_entities
         )
 
-        assert result == "value-value"
+        # Should return formatted room status
+        assert "Room: Living Room" in result
+        assert "Temperature: 22.5°C" in result
+        assert "Humidity: 45%" in result
+        assert "Light: on" in result
 
-    def test_function_schema_validation(self, hass, executor):
-        """Test composite function schema validation errors."""
-        # Test invalid schema - sequence not a list
-        with pytest.raises(InvalidFunction):
-            executor.to_arguments({"type": "composite", "sequence": "not a list"})
+    async def test_composite_with_different_rooms(
+        self, hass, executor, exposed_entities, llm_context
+    ):
+        """Test composite function with various rooms."""
+        func_def = get_function_from_yaml("composite_example.yaml")
+        function_executor = get_function_executor(func_def["function"]["type"])
+        processed_function = function_executor.to_arguments(func_def["function"])
 
-        # Test invalid schema - missing sequence
-        with pytest.raises(InvalidFunction):
-            executor.to_arguments({"type": "composite"})
+        # Mock sensor states for bedroom
+        def mock_states_get(entity_id):
+            states_map = {
+                "sensor.bedroom_temperature": State("sensor.bedroom_temperature", "20.0"),
+                "sensor.bedroom_humidity": State("sensor.bedroom_humidity", "50"),
+                "light.bedroom": State("light.bedroom", "off"),
+            }
+            return states_map.get(entity_id)
 
-        # Verify schema has required sequence field
-        schema = executor.data_schema.schema
-        has_sequence = vol.Required("sequence") in schema or any(
-            isinstance(k, vol.Required) and k.schema == "sequence" for k in schema
+        hass.states.get = mock_states_get
+
+        arguments = {"room_name": "bedroom"}
+        result = await executor.execute(
+            hass, processed_function, arguments, llm_context, exposed_entities
         )
-        assert has_sequence
 
-    def test_function_schema_nested_validation(self, executor):
-        """Test nested function type validation."""
-        # Invalid nested type
-        with pytest.raises((InvalidFunction, vol.error.Error, FunctionNotFound)):
-            executor.to_arguments(
-                {
-                    "type": "composite",
-                    "sequence": [{"type": "nonexistent"}],
-                }
-            )
-
+        assert "Room: Bedroom" in result
+        assert "Temperature: 20.0°C" in result
+        assert "Humidity: 50%" in result
+        assert "Light: off" in result

@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal
-
-from openai import OpenAIError
-import yaml
+from typing import Any, Literal
 
 from homeassistant.components import conversation
 from homeassistant.components.conversation import (
@@ -17,14 +14,15 @@ from homeassistant.components.conversation import (
     ConversationResult,
     async_get_chat_log,
 )
-from homeassistant.components.homeassistant.exposed_entities import async_should_expose
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import MATCH_ALL
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import entity_registry as er, intent, llm, template
+from homeassistant.helpers import intent, llm, template
 from homeassistant.helpers.chat_session import async_get_chat_session
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from openai import OpenAIError
+import yaml
 
 from . import ExtendedOpenAIConfigEntry
 from .const import (
@@ -185,9 +183,9 @@ class ExtendedOpenAIAgentEntity(
         user_input: ConversationInput,
     ) -> str:
         """Build system prompt with exposed entities."""
-        raw_prompt = self.subentry.data.get(CONF_PROMPT, DEFAULT_PROMPT)
+        raw_prompt: str = self.subentry.data.get(CONF_PROMPT, DEFAULT_PROMPT)
 
-        return template.Template(raw_prompt, self.hass).async_render(
+        result = template.Template(raw_prompt, self.hass).async_render(
             {
                 "ha_name": self.hass.config.location_name,
                 "exposed_entities": exposed_entities,
@@ -196,8 +194,9 @@ class ExtendedOpenAIAgentEntity(
             },
             parse_result=False,
         )
+        return str(result)
 
-    def _get_exposed_entities(self):
+    def _get_exposed_entities(self) -> list[dict[str, Any]]:
         return get_exposed_entities(self.hass)
 
     def _get_functions(self) -> list[dict]:
@@ -207,12 +206,15 @@ class ExtendedOpenAIAgentEntity(
             result = yaml.safe_load(function) if function else DEFAULT_CONF_FUNCTIONS
             if result:
                 for setting in result:
-                    function_executor = get_function_executor(
-                        setting["function"]["type"]
-                    )
-                    setting["function"] = function_executor.to_arguments(
-                        setting["function"]
-                    )
+                    if isinstance(setting, dict) and "function" in setting:
+                        function_data = setting["function"]
+                        if isinstance(function_data, dict) and "type" in function_data:
+                            function_executor = get_function_executor(
+                                function_data["type"]
+                            )
+                            setting["function"] = function_executor.to_arguments(
+                                function_data
+                            )
             return result or []
         except (InvalidFunction, FunctionNotFound) as e:
             raise e

@@ -1,0 +1,25 @@
+- spec:
+    name: get_energy_summary
+    description: Get a formatted summary of current energy consumption
+    parameters:
+      type: object
+      properties:
+        show_cost:
+          type: boolean
+          description: Whether to include cost calculation
+          default: true
+      required: []
+  function:
+    type: template
+    value_template: >
+      {% set power = states('sensor.house_power') | float(0) %}
+      {% set daily_energy = states('sensor.daily_energy') | float(0) %}
+      {% set cost_per_kwh = 0.12 %}
+      Current power consumption: {{ power | round(2) }} W
+      Today's energy usage: {{ daily_energy | round(2) }} kWh
+      {% if show_cost %}
+      Estimated cost today: ${{ (daily_energy * cost_per_kwh) | round(2) }}
+      {% endif %}
+      {% if power > 3000 %}
+      ⚠️ High power consumption detected!
+      {% endif %}

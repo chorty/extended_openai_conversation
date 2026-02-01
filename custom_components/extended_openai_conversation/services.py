@@ -6,12 +6,6 @@ import mimetypes
 from pathlib import Path
 from urllib.parse import urlparse
 
-from openai._exceptions import OpenAIError
-from openai.types.chat.chat_completion_content_part_image_param import (
-    ChatCompletionContentPartImageParam,
-)
-import voluptuous as vol
-
 from homeassistant.const import CONF_API_KEY
 from homeassistant.core import (
     HomeAssistant,
@@ -22,6 +16,8 @@ from homeassistant.core import (
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv, selector
 from homeassistant.helpers.typing import ConfigType
+from openai._exceptions import OpenAIError
+import voluptuous as vol
 
 from .const import (
     CONF_API_PROVIDER,
@@ -83,7 +79,7 @@ async def async_setup_services(hass: HomeAssistant, config: ConfigType) -> None:
             messages = [
                 {
                     "role": "user",
-                    "content": [{"type": "text", "text": call.data["prompt"]}] + images,
+                    "content": [{"type": "text", "text": call.data["prompt"]}, *images],
                 }
             ]
             _LOGGER.info("Prompt for %s: %s", model, messages)
@@ -102,7 +98,7 @@ async def async_setup_services(hass: HomeAssistant, config: ConfigType) -> None:
                 messages=messages,
                 **token_kwargs,
             )
-            response_dict = response.model_dump()
+            response_dict: dict = response.model_dump()
             _LOGGER.info("Response %s", response_dict)
         except OpenAIError as err:
             raise HomeAssistantError(f"Error generating image: {err}") from err
@@ -173,7 +169,7 @@ async def async_setup_services(hass: HomeAssistant, config: ConfigType) -> None:
     )
 
 
-def to_image_param(hass: HomeAssistant, image) -> ChatCompletionContentPartImageParam:
+def to_image_param(hass: HomeAssistant, image: dict) -> dict:
     """Convert url to base64 encoded image if local."""
     url = image["url"]
 
@@ -196,7 +192,7 @@ def to_image_param(hass: HomeAssistant, image) -> ChatCompletionContentPartImage
     return image
 
 
-def encode_image(image_path):
+def encode_image(image_path: str) -> str:
     """Convert to base64 encoded image."""
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode("utf-8")

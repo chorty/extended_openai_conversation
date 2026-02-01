@@ -1,0 +1,31 @@
+- spec:
+    name: get_temperature_history
+    description: Get temperature history for a sensor over the last 24 hours
+    parameters:
+      type: object
+      properties:
+        sensor_name:
+          type: string
+          description: Sensor entity ID (e.g., sensor.living_room_temperature)
+        hours:
+          type: number
+          description: Number of hours to look back
+          default: 24
+      required:
+      - sensor_name
+  function:
+    type: sqlite
+    query: |
+      SELECT
+        state,
+        datetime(last_updated_ts, 'unixepoch', 'localtime') as timestamp
+      FROM states
+      WHERE entity_id = '{{ sensor_name }}'
+      {% if is_exposed(sensor_name) %}
+      AND last_updated_ts > strftime('%s', 'now', '-{{ hours }} hours')
+      AND state NOT IN ('unknown', 'unavailable')
+      ORDER BY last_updated_ts DESC
+      {% else %}
+      {{ raise('Entity not exposed') }}
+      {% endif %}
+    single: false
