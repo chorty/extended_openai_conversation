@@ -12,10 +12,6 @@ from typing import Any
 from urllib import parse
 
 from bs4 import BeautifulSoup
-from openai import AsyncAzureOpenAI, AsyncClient, AsyncOpenAI
-import voluptuous as vol
-import yaml
-
 from homeassistant.components import (
     automation,
     conversation,
@@ -26,6 +22,7 @@ from homeassistant.components import (
 )
 from homeassistant.components.automation.config import _async_validate_config_item
 from homeassistant.components.homeassistant.exposed_entities import async_should_expose
+from homeassistant.components.recorder import history as recorder_history
 from homeassistant.components.script.config import SCRIPT_ENTITY_SCHEMA
 from homeassistant.config import AUTOMATION_CONFIG_PATH
 from homeassistant.const import (
@@ -47,6 +44,9 @@ from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.script import Script
 from homeassistant.helpers.template import Template
 import homeassistant.util.dt as dt_util
+from openai import AsyncAzureOpenAI, AsyncClient, AsyncOpenAI
+import voluptuous as vol
+import yaml
 
 from .const import (
     CONF_PAYLOAD_TEMPLATE,
@@ -76,8 +76,15 @@ def get_model_config(model: str) -> dict[str, bool]:
     """Get model-specific parameter configuration."""
     # Check patterns in order; first match wins
     for entry in MODEL_CONFIG_PATTERNS:
-        if re.match(entry["pattern"], model, re.IGNORECASE):
-            return entry["config"]
+        pattern = str(entry["pattern"])
+        entry_config = entry["config"]
+        if re.match(pattern, model, re.IGNORECASE):
+            # Type assertion since we know the structure from MODEL_CONFIG_PATTERNS
+            return (
+                dict(entry_config)
+                if isinstance(entry_config, dict)
+                else DEFAULT_MODEL_CONFIG
+            )
 
     # Default configuration for standard models (gpt-4, gpt-4o, etc.)
     return DEFAULT_MODEL_CONFIG
@@ -96,9 +103,9 @@ def get_exposed_entities(hass: HomeAssistant) -> list[dict[str, Any]]:
         entity_id = state.entity_id
         entity = entity_registry.async_get(entity_id)
 
-        aliases = []
+        aliases: list[str] = []
         if entity and entity.aliases:
-            aliases = entity.aliases
+            aliases = list(entity.aliases)
 
         exposed_entities.append(
             {
@@ -111,7 +118,7 @@ def get_exposed_entities(hass: HomeAssistant) -> list[dict[str, Any]]:
     return exposed_entities
 
 
-def get_function_executor(value: str):
+def get_function_executor(value: str) -> FunctionExecutor:
     function_executor = FUNCTION_EXECUTORS.get(value)
     if function_executor is None:
         raise FunctionNotFound(value)
@@ -120,9 +127,7 @@ def get_function_executor(value: str):
 
 def is_azure_url(base_url: str | None) -> bool:
     """Check if the base URL is an Azure OpenAI URL."""
-    if base_url and re.search(AZURE_DOMAIN_PATTERN, base_url):
-        return True
-    return False
+    return bool(base_url and re.search(AZURE_DOMAIN_PATTERN, base_url))
 
 
 def get_token_param_for_model(model: str) -> str:
@@ -135,14 +140,21 @@ def get_token_param_for_model(model: str) -> str:
 
 
 def convert_to_template(
-    settings,
-    template_keys=["data", "event_data", "target", "service"],
+    settings: Any,
+    template_keys: list[str] | None = None,
     hass: HomeAssistant | None = None,
-):
+) -> None:
+    if template_keys is None:
+        template_keys = ["data", "event_data", "target", "service"]
     _convert_to_template(settings, template_keys, hass, [])
 
 
-def _convert_to_template(settings, template_keys, hass, parents: list[str]):
+def _convert_to_template(
+    settings: Any,
+    template_keys: list[str],
+    hass: HomeAssistant | None,
+    parents: list[str],
+) -> None:
     if isinstance(settings, dict):
         for key, value in settings.items():
             if isinstance(value, str) and (
@@ -163,7 +175,9 @@ def _convert_to_template(settings, template_keys, hass, parents: list[str]):
             _convert_to_template(setting, template_keys, hass, parents)
 
 
-def _get_rest_data(hass, rest_config, arguments):
+def _get_rest_data(
+    hass: HomeAssistant, rest_config: dict[str, Any], arguments: dict[str, Any]
+) -> rest.data.RestData:
     rest_config.setdefault(CONF_METHOD, rest.const.DEFAULT_METHOD)
     rest_config.setdefault(CONF_VERIFY_SSL, rest.const.DEFAULT_VERIFY_SSL)
     rest_config.setdefault(CONF_TIMEOUT, rest.data.DEFAULT_TIMEOUT)
@@ -193,10 +207,11 @@ async def get_authenticated_client(
     api_version: str | None,
     organization: str | None,
     api_provider: str | None,
-    skip_authentication=False,
+    skip_authentication: bool = False,
 ) -> AsyncClient:
     """Validate OpenAI authentication."""
 
+    client: AsyncClient
     if base_url and (is_azure_url(base_url) or api_provider == "azure"):
         client = AsyncAzureOpenAI(
             api_key=api_key,
@@ -226,37 +241,49 @@ async def get_authenticated_client(
 
 
 class FunctionExecutor(ABC):
-    def __init__(self, data_schema=vol.Schema({})) -> None:
+    def __init__(self, data_schema: vol.Schema = vol.Schema({})) -> None:
         """initialize function executor"""
         self.data_schema = data_schema.extend({vol.Required("type"): str})
 
-    def to_arguments(self, arguments):
+    def to_arguments(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """to_arguments function"""
         try:
-            return self.data_schema(arguments)
+            result = self.data_schema(arguments)
+            return dict(result) if isinstance(result, dict) else {}
         except vol.error.Error as e:
             function_type = next(
                 (key for key, value in FUNCTION_EXECUTORS.items() if value == self),
-                None,
+                "",
             )
             raise InvalidFunction(function_type) from e
 
-    def validate_entity_ids(self, hass: HomeAssistant, entity_ids, exposed_entities):
-        if any(hass.states.get(entity_id) is None for entity_id in entity_ids):
-            raise EntityNotFound(entity_ids)
-        exposed_entity_ids = map(lambda e: e["entity_id"], exposed_entities)
-        if not set(entity_ids).issubset(exposed_entity_ids):
-            raise EntityNotExposed(entity_ids)
+    def validate_entity_ids(
+        self,
+        hass: HomeAssistant,
+        entity_ids: list[str],
+        exposed_entities: list[dict[str, Any]],
+    ) -> None:
+        not_found = [
+            entity_id for entity_id in entity_ids if hass.states.get(entity_id) is None
+        ]
+        if not_found:
+            raise EntityNotFound(", ".join(not_found))
+        exposed_entity_ids = {e["entity_id"] for e in exposed_entities}
+        not_exposed = [
+            entity_id for entity_id in entity_ids if entity_id not in exposed_entity_ids
+        ]
+        if not_exposed:
+            raise EntityNotExposed(", ".join(not_exposed))
 
     @abstractmethod
     async def execute(
         self,
         hass: HomeAssistant,
-        function,
-        arguments,
+        function: dict[str, Any],
+        arguments: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> Any:
         """execute function"""
 
 
@@ -268,11 +295,11 @@ class NativeFunctionExecutor(FunctionExecutor):
     async def execute(
         self,
         hass: HomeAssistant,
-        function,
-        arguments,
+        function: dict[str, Any],
+        arguments: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> Any:
         name = function["name"]
         if name == "execute_service":
             return await self.execute_service(
@@ -308,11 +335,11 @@ class NativeFunctionExecutor(FunctionExecutor):
     async def execute_service_single(
         self,
         hass: HomeAssistant,
-        function,
-        service_argument,
+        function: dict[str, Any],
+        service_argument: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         domain = service_argument["domain"]
         service = service_argument["service"]
         service_data = service_argument.get(
@@ -346,11 +373,11 @@ class NativeFunctionExecutor(FunctionExecutor):
     async def execute_service(
         self,
         hass: HomeAssistant,
-        function,
-        arguments,
+        function: dict[str, Any],
+        arguments: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         result = []
         for service_argument in arguments.get("list", []):
             result.append(
@@ -363,11 +390,11 @@ class NativeFunctionExecutor(FunctionExecutor):
     async def add_automation(
         self,
         hass: HomeAssistant,
-        function,
-        arguments,
+        function: dict[str, Any],
+        arguments: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> str:
         automation_config = yaml.safe_load(arguments["automation_config"])
         config = {"id": str(round(time.time() * 1000))}
         if isinstance(automation_config, list):
@@ -380,7 +407,6 @@ class NativeFunctionExecutor(FunctionExecutor):
         automations = [config]
         with open(
             os.path.join(hass.config.config_dir, AUTOMATION_CONFIG_PATH),
-            "r",
             encoding="utf-8",
         ) as f:
             current_automations = yaml.safe_load(f.read())
@@ -403,11 +429,11 @@ class NativeFunctionExecutor(FunctionExecutor):
     async def get_history(
         self,
         hass: HomeAssistant,
-        function,
-        arguments,
+        function: dict[str, Any],
+        arguments: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> list[list[dict[str, Any]]]:
         start_time = arguments.get("start_time")
         end_time = arguments.get("end_time")
         entity_ids = arguments.get("entity_ids", [])
@@ -425,7 +451,7 @@ class NativeFunctionExecutor(FunctionExecutor):
 
         with recorder.util.session_scope(hass=hass, read_only=True) as session:
             result = await recorder.get_instance(hass).async_add_executor_job(
-                recorder.history.get_significant_states_with_session,
+                recorder_history.get_significant_states_with_session,
                 hass,
                 session,
                 start_time,
@@ -443,36 +469,54 @@ class NativeFunctionExecutor(FunctionExecutor):
     async def get_energy(
         self,
         hass: HomeAssistant,
-        function,
-        arguments,
+        function: dict[str, Any],
+        arguments: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         energy_manager: energy.data.EnergyManager = await energy.async_get_manager(hass)
-        return energy_manager.data
+        if energy_manager.data is None:
+            return {}
+        # energy_manager.data is EnergyPreferences which is a TypedDict (already a dict)
+        return dict(energy_manager.data)
 
     async def get_user_from_user_id(
         self,
         hass: HomeAssistant,
-        function,
-        arguments,
+        function: dict[str, Any],
+        arguments: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        if (
+            llm_context is None
+            or llm_context.context is None
+            or llm_context.context.user_id is None
+        ):
+            return {"name": "Unknown"}
         user = await hass.auth.async_get_user(llm_context.context.user_id)
-        return {"name": user.name if user and hasattr(user, "name") else "Unknown"}
+        user_name = (
+            user.name
+            if user and hasattr(user, "name") and user.name is not None
+            else "Unknown"
+        )
+        return {"name": user_name}
 
     async def get_statistics(
         self,
         hass: HomeAssistant,
-        function,
-        arguments,
+        function: dict[str, Any],
+        arguments: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         statistic_ids = arguments.get("statistic_ids", [])
-        start_time = dt_util.as_utc(dt_util.parse_datetime(arguments["start_time"]))
-        end_time = dt_util.as_utc(dt_util.parse_datetime(arguments["end_time"]))
+        start_time_parsed = dt_util.parse_datetime(arguments["start_time"])
+        end_time_parsed = dt_util.parse_datetime(arguments["end_time"])
+        if start_time_parsed is None or end_time_parsed is None:
+            raise HomeAssistantError("Invalid datetime format")
+        start_time = dt_util.as_utc(start_time_parsed)
+        end_time = dt_util.as_utc(end_time_parsed)
 
         return await recorder.get_instance(hass).async_add_executor_job(
             recorder.statistics.statistics_during_period,
@@ -485,7 +529,9 @@ class NativeFunctionExecutor(FunctionExecutor):
             arguments.get("types", {"change"}),
         )
 
-    def as_utc(self, value: str, default_value, parse_error_message: str):
+    def as_utc(
+        self, value: str | None, default_value: Any, parse_error_message: str
+    ) -> Any:
         if value is None:
             return default_value
 
@@ -495,7 +541,7 @@ class NativeFunctionExecutor(FunctionExecutor):
 
         return dt_util.as_utc(parsed_datetime)
 
-    def as_dict(self, state: State | dict[str, Any]):
+    def as_dict(self, state: State | dict[str, Any]) -> dict[str, Any]:
         if isinstance(state, State):
             return state.as_dict()
         return state
@@ -509,11 +555,11 @@ class ScriptFunctionExecutor(FunctionExecutor):
     async def execute(
         self,
         hass: HomeAssistant,
-        function,
-        arguments,
+        function: dict[str, Any],
+        arguments: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> Any:
         script = Script(
             hass,
             function["sequence"],
@@ -525,6 +571,8 @@ class ScriptFunctionExecutor(FunctionExecutor):
 
         context = llm_context.context if llm_context else None
         result = await script.async_run(run_variables=arguments, context=context)
+        if result is None:
+            return "Success"
         return result.variables.get("_function_result", "Success")
 
 
@@ -543,11 +591,11 @@ class TemplateFunctionExecutor(FunctionExecutor):
     async def execute(
         self,
         hass: HomeAssistant,
-        function,
-        arguments,
+        function: dict[str, Any],
+        arguments: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> Any:
         return function["value_template"].async_render(
             arguments,
             parse_result=function.get("parse_result", False),
@@ -569,11 +617,11 @@ class RestFunctionExecutor(FunctionExecutor):
     async def execute(
         self,
         hass: HomeAssistant,
-        function,
-        arguments,
+        function: dict[str, Any],
+        arguments: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> Any:
         config = function
         rest_data = _get_rest_data(hass, config, arguments)
 
@@ -604,19 +652,21 @@ class ScrapeFunctionExecutor(FunctionExecutor):
     async def execute(
         self,
         hass: HomeAssistant,
-        function,
-        arguments,
+        function: dict[str, Any],
+        arguments: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> Any:
         config = function
         rest_data = _get_rest_data(hass, config, arguments)
         coordinator = scrape.coordinator.ScrapeCoordinator(
             hass,
+            None,
             rest_data,
+            config,
             scrape.const.DEFAULT_SCAN_INTERVAL,
         )
-        await coordinator.async_config_entry_first_refresh()
+        await coordinator.async_refresh()
 
         new_arguments = dict(arguments)
 
@@ -644,7 +694,7 @@ class ScrapeFunctionExecutor(FunctionExecutor):
         data: BeautifulSoup,
         sensor_config: dict[str, Any],
         arguments: dict[str, Any],
-    ) -> None:
+    ) -> Any:
         """Update state from the rest data."""
         value = self._extract_value(data, sensor_config)
         value_template = sensor_config.get(CONF_VALUE_TEMPLATE)
@@ -694,24 +744,24 @@ class CompositeFunctionExecutor(FunctionExecutor):
             )
         )
 
-    def function_schema(self, value: Any) -> dict:
+    def function_schema(self, value: Any) -> dict[str, Any]:
         """Validate a composite function schema."""
         if not isinstance(value, dict):
             raise vol.Invalid("expected dictionary")
 
         composite_schema = {vol.Optional("response_variable"): str}
-        function_executor = get_function_executor(value["type"])
+        function_executor = get_function_executor(str(value["type"]))
 
-        return function_executor.data_schema.extend(composite_schema)(value)
+        return dict(function_executor.data_schema.extend(composite_schema)(value))
 
     async def execute(
         self,
         hass: HomeAssistant,
-        function,
-        arguments,
+        function: dict[str, Any],
+        arguments: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> Any:
         config = function
         sequence = config["sequence"]
         new_arguments = arguments.copy()
@@ -742,13 +792,17 @@ class SqliteFunctionExecutor(FunctionExecutor):
             )
         )
 
-    def is_exposed(self, entity_id, exposed_entities) -> bool:
+    def is_exposed(
+        self, entity_id: str, exposed_entities: list[dict[str, Any]]
+    ) -> bool:
         return any(
             exposed_entity["entity_id"] == entity_id
             for exposed_entity in exposed_entities
         )
 
-    def is_exposed_entity_in_query(self, query: str, exposed_entities) -> bool:
+    def is_exposed_entity_in_query(
+        self, query: str, exposed_entities: list[dict[str, Any]]
+    ) -> bool:
         exposed_entity_ids = list(
             map(lambda e: f"'{e['entity_id']}'", exposed_entities)
         )
@@ -756,7 +810,7 @@ class SqliteFunctionExecutor(FunctionExecutor):
             exposed_entity_id in query for exposed_entity_id in exposed_entity_ids
         )
 
-    def raise_error(self, msg="Unexpected error occurred."):
+    def raise_error(self, msg: str = "Unexpected error occurred.") -> None:
         raise HomeAssistantError(msg)
 
     def get_default_db_url(self, hass: HomeAssistant) -> str:
@@ -775,11 +829,11 @@ class SqliteFunctionExecutor(FunctionExecutor):
     async def execute(
         self,
         hass: HomeAssistant,
-        function,
-        arguments,
+        function: dict[str, Any],
+        arguments: dict[str, Any],
         llm_context: llm.LLMContext | None,
-        exposed_entities,
-    ):
+        exposed_entities: list[dict[str, Any]],
+    ) -> dict[str, Any] | list[dict[str, Any]]:
         db_url = self.set_url_read_only(
             function.get("db_url", self.get_default_db_url(hass))
         )
@@ -804,12 +858,14 @@ class SqliteFunctionExecutor(FunctionExecutor):
 
             if function.get("single") is True:
                 row = cursor.fetchone()
-                return {name: val for name, val in zip(names, row)}
+                return {name: val for name, val in zip(names, row, strict=False)}
 
             rows = cursor.fetchall()
             result = []
             for row in rows:
-                result.append({name: val for name, val in zip(names, row)})
+                result.append(
+                    {name: val for name, val in zip(names, row, strict=False)}
+                )
             return result
 
 

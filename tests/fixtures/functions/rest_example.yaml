@@ -1,0 +1,26 @@
+- spec:
+    name: get_weather_forecast
+    description: Get weather forecast for a specific city using OpenWeatherMap API
+    parameters:
+      type: object
+      properties:
+        city:
+          type: string
+          description: City name
+        country_code:
+          type: string
+          description: Two-letter country code (e.g., US, KR)
+          default: US
+      required:
+      - city
+  function:
+    type: rest
+    resource_template: "https://api.openweathermap.org/data/2.5/weather?q={{ city }},{{ country_code }}&appid=YOUR_API_KEY&units=metric"
+    method: GET
+    timeout: 10
+    verify_ssl: true
+    value_template: >
+      Weather in {{ value_json.name }}: {{ value_json.weather[0].description | title }}.
+      Temperature: {{ value_json.main.temp }}°C (feels like {{ value_json.main.feels_like }}°C).
+      Humidity: {{ value_json.main.humidity }}%.
+      Wind: {{ value_json.wind.speed }} m/s.

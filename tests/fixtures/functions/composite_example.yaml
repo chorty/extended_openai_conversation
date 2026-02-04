@@ -1,0 +1,25 @@
+- spec:
+    name: get_room_status
+    description: Get comprehensive room status including temperature, humidity, and lighting
+    parameters:
+      type: object
+      properties:
+        room_name:
+          type: string
+          description: Name of the room (e.g., living_room, bedroom)
+      required:
+      - room_name
+  function:
+    type: composite
+    sequence:
+      - type: template
+        value_template: "{{ states('sensor.' + room_name + '_temperature') }}"
+        response_variable: "temperature"
+      - type: template
+        value_template: "{{ states('sensor.' + room_name + '_humidity') }}"
+        response_variable: "humidity"
+      - type: template
+        value_template: "{{ states('light.' + room_name) }}"
+        response_variable: "light_status"
+      - type: template
+        value_template: "Room: {{ room_name | replace('_', ' ') | title }}\nTemperature: {{ temperature }}°C\nHumidity: {{ humidity }}%\nLight: {{ light_status }}"
