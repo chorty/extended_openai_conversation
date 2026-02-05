@@ -57,6 +57,13 @@ _LOGGER = logging.getLogger(__name__)
 MAX_TOOL_ITERATIONS = 10
 
 
+def _shorten_tool_call_id(tool_call_id: str) -> str:
+    """Shorten tool call ID to exactly 9 alphanumeric characters as Mistral requires."""
+    import hashlib
+
+    return hashlib.sha256(tool_call_id.encode()).hexdigest()[:9]
+
+
 def _adjust_schema(schema: dict[str, Any]) -> None:
     """Adjust the schema to be compatible with OpenAI API."""
     if schema["type"] == "object":
@@ -116,7 +123,7 @@ def _convert_content_to_param(
             if content.tool_calls:
                 msg["tool_calls"] = [
                     {
-                        "id": tool_call.id,
+                        "id": _shorten_tool_call_id(tool_call.id),
                         "type": "function",
                         "function": {
                             "name": tool_call.tool_name,
@@ -134,7 +141,7 @@ def _convert_content_to_param(
             messages.append(
                 {
                     "role": "tool",
-                    "tool_call_id": content.tool_call_id,
+                    "tool_call_id": _shorten_tool_call_id(content.tool_call_id),
                     "content": orjson.dumps(content.tool_result).decode(),
                 }
             )
