@@ -1,5 +1,7 @@
 """Helper functions for Extended OpenAI Conversation component."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from datetime import timedelta
 from functools import partial
