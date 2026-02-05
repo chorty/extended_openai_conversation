@@ -14,6 +14,7 @@ from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionToolParam,
 )
+import orjson
 import voluptuous as vol
 from voluptuous_openapi import convert
 
@@ -134,7 +135,7 @@ def _convert_content_to_param(
                 {
                     "role": "tool",
                     "tool_call_id": content.tool_call_id,
-                    "content": json.dumps(content.tool_result),
+                    "content": orjson.dumps(content.tool_result).decode(),
                 }
             )
 
