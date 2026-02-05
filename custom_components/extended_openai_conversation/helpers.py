@@ -12,6 +12,10 @@ from typing import Any
 from urllib import parse
 
 from bs4 import BeautifulSoup
+from openai import AsyncAzureOpenAI, AsyncClient, AsyncOpenAI
+import voluptuous as vol
+import yaml
+
 from homeassistant.components import (
     automation,
     conversation,
@@ -44,9 +48,6 @@ from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.script import Script
 from homeassistant.helpers.template import Template
 import homeassistant.util.dt as dt_util
-from openai import AsyncAzureOpenAI, AsyncClient, AsyncOpenAI
-import voluptuous as vol
-import yaml
 
 from .const import (
     CONF_PAYLOAD_TEMPLATE,

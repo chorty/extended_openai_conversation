@@ -1,22 +1,13 @@
 """Tests for CompositeFunctionExecutor using yaml definitions."""
 
-import sys
-from pathlib import Path
-
-# Add config directory to path for custom_components imports
-config_dir = Path(__file__).parent.parent.parent.parent.parent
-if str(config_dir) not in sys.path:
-    sys.path.insert(0, str(config_dir))
-
 import pytest
-
-from homeassistant.core import State
 
 # Import FunctionExecutors and test helpers
 from custom_components.extended_openai_conversation.helpers import (
     CompositeFunctionExecutor,
     get_function_executor,
 )
+from homeassistant.core import State
 from tests.helpers import get_function_from_yaml
 
 
@@ -42,8 +33,12 @@ class TestCompositeFunctionExecutorYaml:
         # Mock sensor states for the living_room
         def mock_states_get(entity_id):
             states_map = {
-                "sensor.living_room_temperature": State("sensor.living_room_temperature", "22.5"),
-                "sensor.living_room_humidity": State("sensor.living_room_humidity", "45"),
+                "sensor.living_room_temperature": State(
+                    "sensor.living_room_temperature", "22.5"
+                ),
+                "sensor.living_room_humidity": State(
+                    "sensor.living_room_humidity", "45"
+                ),
                 "light.living_room": State("light.living_room", "on"),
             }
             return states_map.get(entity_id)
@@ -74,7 +69,9 @@ class TestCompositeFunctionExecutorYaml:
         # Mock sensor states for bedroom
         def mock_states_get(entity_id):
             states_map = {
-                "sensor.bedroom_temperature": State("sensor.bedroom_temperature", "20.0"),
+                "sensor.bedroom_temperature": State(
+                    "sensor.bedroom_temperature", "20.0"
+                ),
                 "sensor.bedroom_humidity": State("sensor.bedroom_humidity", "50"),
                 "light.bedroom": State("light.bedroom", "off"),
             }
