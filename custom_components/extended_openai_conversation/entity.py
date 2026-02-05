@@ -124,6 +124,10 @@ def _convert_content_to_param(
                     }
                     for tool_call in content.tool_calls
                 ]
+            # Some OpenAI-compatible APIs (like Mistral) reject empty tool_calls arrays
+            # Remove tool_calls field if it's an empty array to maintain compatibility
+            if msg.get("tool_calls") == []:
+                msg.pop("tool_calls", None)
             messages.append(msg)
         elif content.role == "tool_result":
             messages.append(
@@ -197,7 +201,6 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
         # Build API parameters based on model configuration
         api_kwargs: dict[str, Any] = {
             "model": model,
-            "user": chat_log.conversation_id,
             "stream": True,
             "stream_options": {"include_usage": True},
         }
