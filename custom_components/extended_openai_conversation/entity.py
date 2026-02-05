@@ -262,7 +262,8 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
         # To prevent infinite loops, we limit the number of iterations
         for n_requests in range(MAX_TOOL_ITERATIONS):
             # Update tool_choice based on function call count
-            if tools and n_requests >= max_function_calls:
+            # -1 means unlimited function calls
+            if tools and max_function_calls >= 0 and n_requests >= max_function_calls:
                 tool_kwargs["tool_choice"] = "none"
 
             _LOGGER.info("Prompt for %s: %s", model, json.dumps(messages))
