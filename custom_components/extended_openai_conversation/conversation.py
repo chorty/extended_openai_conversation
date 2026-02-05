@@ -5,6 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal
 
+from openai import OpenAIError
+import yaml
+
 from homeassistant.components import conversation
 from homeassistant.components.conversation import (
     ChatLog,
@@ -21,8 +24,6 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import intent, llm, template
 from homeassistant.helpers.chat_session import async_get_chat_session
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from openai import OpenAIError
-import yaml
 
 from . import ExtendedOpenAIConfigEntry
 from .const import (

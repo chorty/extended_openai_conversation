@@ -6,6 +6,9 @@ import mimetypes
 from pathlib import Path
 from urllib.parse import urlparse
 
+from openai._exceptions import OpenAIError
+import voluptuous as vol
+
 from homeassistant.const import CONF_API_KEY
 from homeassistant.core import (
     HomeAssistant,
@@ -16,8 +19,6 @@ from homeassistant.core import (
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv, selector
 from homeassistant.helpers.typing import ConfigType
-from openai._exceptions import OpenAIError
-import voluptuous as vol
 
 from .const import (
     CONF_API_PROVIDER,

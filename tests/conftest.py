@@ -1,11 +1,18 @@
 """Fixtures for extended_openai_conversation tests."""
 
 from pathlib import Path
+import sys
 from unittest.mock import AsyncMock, MagicMock
 
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.template import TemplateEnvironment
-import pytest
+# Add config directory to path for custom_components imports
+config_dir = Path(__file__).parent.parent
+if str(config_dir) not in sys.path:
+    sys.path.insert(0, str(config_dir))
+
+import pytest  # noqa: E402
+
+from homeassistant.helpers import config_validation as cv  # noqa: E402
+from homeassistant.helpers.template import TemplateEnvironment  # noqa: E402
 
 
 @pytest.fixture

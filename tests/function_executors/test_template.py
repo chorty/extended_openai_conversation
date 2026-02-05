@@ -1,22 +1,13 @@
 """Tests for TemplateFunctionExecutor using yaml definitions."""
 
-import sys
-from pathlib import Path
-
-# Add config directory to path for custom_components imports
-config_dir = Path(__file__).parent.parent.parent.parent.parent
-if str(config_dir) not in sys.path:
-    sys.path.insert(0, str(config_dir))
-
 import pytest
-
-from homeassistant.core import State
 
 # Import FunctionExecutors and test helpers
 from custom_components.extended_openai_conversation.helpers import (
     TemplateFunctionExecutor,
     get_function_executor,
 )
+from homeassistant.core import State
 from tests.helpers import get_function_from_yaml
 
 

@@ -6,6 +6,10 @@ import logging
 import types
 from typing import Any
 
+from openai._exceptions import APIConnectionError, AuthenticationError
+import voluptuous as vol
+import yaml
+
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigEntryState,
@@ -27,9 +31,6 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
     TemplateSelector,
 )
-from openai._exceptions import APIConnectionError, AuthenticationError
-import voluptuous as vol
-import yaml
 
 from .const import (
     API_PROVIDERS,
