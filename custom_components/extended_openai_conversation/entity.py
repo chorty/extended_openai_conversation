@@ -358,7 +358,17 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
             delta = choice.delta
 
             if delta.content:
-                yield {"content": delta.content}
+                # Ensure content is a string (Mistral might return unexpected types)
+                content_value = delta.content
+                if not isinstance(content_value, str):
+                    _LOGGER.warning(
+                        "Received non-string content from API: %s (type: %s)",
+                        content_value,
+                        type(content_value),
+                    )
+                    content_value = str(content_value) if content_value else ""
+                if content_value:
+                    yield {"content": content_value}
 
             if delta.tool_calls:
                 for tool_call_delta in delta.tool_calls:
