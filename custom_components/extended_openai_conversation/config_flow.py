@@ -48,6 +48,7 @@ from .const import (
     CONF_PROMPT,
     CONF_REASONING_EFFORT,
     CONF_SERVICE_TIER,
+    CONF_SHORTEN_TOOL_CALL_ID,
     CONF_SKIP_AUTHENTICATION,
     CONF_TEMPERATURE,
     CONF_TOP_P,
@@ -68,6 +69,7 @@ from .const import (
     DEFAULT_PROMPT,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_SERVICE_TIER,
+    DEFAULT_SHORTEN_TOOL_CALL_ID,
     DEFAULT_SKIP_AUTHENTICATION,
     DEFAULT_TEMPERATURE,
     DEFAULT_TOP_P,
@@ -116,6 +118,7 @@ DEFAULT_OPTIONS = types.MappingProxyType(
         CONF_FUNCTIONS: DEFAULT_CONF_FUNCTIONS_STR,
         CONF_CONTEXT_THRESHOLD: DEFAULT_CONTEXT_THRESHOLD,
         CONF_CONTEXT_TRUNCATE_STRATEGY: DEFAULT_CONTEXT_TRUNCATE_STRATEGY,
+        CONF_SHORTEN_TOOL_CALL_ID: DEFAULT_SHORTEN_TOOL_CALL_ID,
         CONF_ADVANCED_OPTIONS: DEFAULT_ADVANCED_OPTIONS,
     }
 )
@@ -362,6 +365,14 @@ class ExtendedOpenAISubentryFlowHandler(ConfigSubentryFlow):
                 )
             )
 
+        # Add shorten_tool_call_id option (for Mistral AI compatibility)
+        schema[
+            vol.Optional(
+                CONF_SHORTEN_TOOL_CALL_ID,
+                default=DEFAULT_SHORTEN_TOOL_CALL_ID,
+            )
+        ] = BooleanSelector()
+
         return self.async_show_form(
             step_id="advanced",
             data_schema=self.add_suggested_values_to_schema(
@@ -580,6 +591,14 @@ class ExtendedOpenAIAITaskSubentryFlowHandler(ConfigSubentryFlow):
                     mode=SelectSelectorMode.DROPDOWN,
                 )
             )
+
+        # Add shorten_tool_call_id option (for Mistral AI compatibility)
+        schema[
+            vol.Optional(
+                CONF_SHORTEN_TOOL_CALL_ID,
+                default=DEFAULT_SHORTEN_TOOL_CALL_ID,
+            )
+        ] = BooleanSelector()
 
         return self.async_show_form(
             step_id="advanced",

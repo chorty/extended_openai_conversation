@@ -47,7 +47,11 @@
                         "temperature": "Temperature",
                         "top_p": "Top P",
                         "reasoning_effort": "Reasoning effort",
-                        "service_tier": "Service tier"
+                        "service_tier": "Service tier",
+                        "shorten_tool_call_id": "Shorten tool call IDs"
+                    },
+                    "data_description": {
+                        "shorten_tool_call_id": "Required for Mistral AI cloud API compatibility. Enable only if your provider requires short (9-character) tool call IDs. Keep disabled for OpenAI and most other providers."
                     }
                 }
             }
@@ -73,7 +77,11 @@
                         "temperature": "Temperature",
                         "top_p": "Top P",
                         "reasoning_effort": "Reasoning effort",
-                        "service_tier": "Service tier"
+                        "service_tier": "Service tier",
+                        "shorten_tool_call_id": "Shorten tool call IDs"
+                    },
+                    "data_description": {
+                        "shorten_tool_call_id": "Required for Mistral AI cloud API compatibility. Enable only if your provider requires short (9-character) tool call IDs. Keep disabled for OpenAI and most other providers."
                     }
                 }
             }

@@ -32,6 +32,7 @@ from .const import (
     CONF_MAX_TOKENS,
     CONF_REASONING_EFFORT,
     CONF_SERVICE_TIER,
+    CONF_SHORTEN_TOOL_CALL_ID,
     CONF_TEMPERATURE,
     CONF_TOP_P,
     DEFAULT_CHAT_MODEL,
@@ -41,6 +42,7 @@ from .const import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_SERVICE_TIER,
+    DEFAULT_SHORTEN_TOOL_CALL_ID,
     DEFAULT_TEMPERATURE,
     DEFAULT_TOP_P,
     DOMAIN,
@@ -107,6 +109,7 @@ def _format_structured_output(
 
 def _convert_content_to_param(
     chat_content: list[conversation.Content],
+    shorten_tool_call_id: bool = False,
 ) -> list[ChatCompletionMessageParam]:
     """Convert chat log content to OpenAI message format."""
     messages: list[ChatCompletionMessageParam] = []
@@ -123,7 +126,9 @@ def _convert_content_to_param(
             if content.tool_calls:
                 msg["tool_calls"] = [
                     {
-                        "id": _shorten_tool_call_id(tool_call.id),
+                        "id": _shorten_tool_call_id(tool_call.id)
+                        if shorten_tool_call_id
+                        else tool_call.id,
                         "type": "function",
                         "function": {
                             "name": tool_call.tool_name,
@@ -141,7 +146,9 @@ def _convert_content_to_param(
             messages.append(
                 {
                     "role": "tool",
-                    "tool_call_id": _shorten_tool_call_id(content.tool_call_id),
+                    "tool_call_id": _shorten_tool_call_id(content.tool_call_id)
+                    if shorten_tool_call_id
+                    else content.tool_call_id,
                     "content": orjson.dumps(content.tool_result).decode(),
                 }
             )
@@ -191,11 +198,15 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
             CONF_MAX_FUNCTION_CALLS_PER_CONVERSATION,
             DEFAULT_MAX_FUNCTION_CALLS_PER_CONVERSATION,
         )
+        shorten_tool_call_id = options.get(
+            CONF_SHORTEN_TOOL_CALL_ID,
+            DEFAULT_SHORTEN_TOOL_CALL_ID,
+        )
 
         # Get model-specific configuration
         model_config = get_model_config(model)
 
-        messages = _convert_content_to_param(chat_log.content)
+        messages = _convert_content_to_param(chat_log.content, shorten_tool_call_id)
 
         # Build tools list from custom functions
         tools: list[ChatCompletionToolParam] = [
@@ -313,7 +324,7 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
                 chat_log.async_add_assistant_content_without_tools(tool_result_content)
 
             # Update messages for next iteration
-            messages = _convert_content_to_param(chat_log.content)
+            messages = _convert_content_to_param(chat_log.content, shorten_tool_call_id)
 
             # Check if we need to continue (if there are pending tool results)
             if not chat_log.unresponded_tool_results:
