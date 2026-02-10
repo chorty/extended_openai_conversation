@@ -14,6 +14,7 @@ from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionToolParam,
 )
+import orjson
 import voluptuous as vol
 from voluptuous_openapi import convert
 
@@ -31,6 +32,7 @@ from .const import (
     CONF_MAX_TOKENS,
     CONF_REASONING_EFFORT,
     CONF_SERVICE_TIER,
+    CONF_SHORTEN_TOOL_CALL_ID,
     CONF_TEMPERATURE,
     CONF_TOP_P,
     DEFAULT_CHAT_MODEL,
@@ -40,6 +42,7 @@ from .const import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_SERVICE_TIER,
+    DEFAULT_SHORTEN_TOOL_CALL_ID,
     DEFAULT_TEMPERATURE,
     DEFAULT_TOP_P,
     DOMAIN,
@@ -54,6 +57,13 @@ _LOGGER = logging.getLogger(__name__)
 
 # Max number of back and forth with the LLM to generate a response
 MAX_TOOL_ITERATIONS = 10
+
+
+def _shorten_tool_call_id(tool_call_id: str) -> str:
+    """Shorten tool call ID to exactly 9 alphanumeric characters as Mistral requires."""
+    import hashlib
+
+    return hashlib.sha256(tool_call_id.encode()).hexdigest()[:9]
 
 
 def _adjust_schema(schema: dict[str, Any]) -> None:
@@ -99,6 +109,7 @@ def _format_structured_output(
 
 def _convert_content_to_param(
     chat_content: list[conversation.Content],
+    shorten_tool_call_id: bool = False,
 ) -> list[ChatCompletionMessageParam]:
     """Convert chat log content to OpenAI message format."""
     messages: list[ChatCompletionMessageParam] = []
@@ -115,7 +126,9 @@ def _convert_content_to_param(
             if content.tool_calls:
                 msg["tool_calls"] = [
                     {
-                        "id": tool_call.id,
+                        "id": _shorten_tool_call_id(tool_call.id)
+                        if shorten_tool_call_id
+                        else tool_call.id,
                         "type": "function",
                         "function": {
                             "name": tool_call.tool_name,
@@ -124,13 +137,19 @@ def _convert_content_to_param(
                     }
                     for tool_call in content.tool_calls
                 ]
+            # Some OpenAI-compatible APIs (like Mistral) reject empty tool_calls arrays
+            # Remove tool_calls field if it's an empty array to maintain compatibility
+            if msg.get("tool_calls") == []:
+                msg.pop("tool_calls", None)
             messages.append(msg)
         elif content.role == "tool_result":
             messages.append(
                 {
                     "role": "tool",
-                    "tool_call_id": content.tool_call_id,
-                    "content": json.dumps(content.tool_result),
+                    "tool_call_id": _shorten_tool_call_id(content.tool_call_id)
+                    if shorten_tool_call_id
+                    else content.tool_call_id,
+                    "content": orjson.dumps(content.tool_result).decode(),
                 }
             )
 
@@ -179,11 +198,15 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
             CONF_MAX_FUNCTION_CALLS_PER_CONVERSATION,
             DEFAULT_MAX_FUNCTION_CALLS_PER_CONVERSATION,
         )
+        shorten_tool_call_id = options.get(
+            CONF_SHORTEN_TOOL_CALL_ID,
+            DEFAULT_SHORTEN_TOOL_CALL_ID,
+        )
 
         # Get model-specific configuration
         model_config = get_model_config(model)
 
-        messages = _convert_content_to_param(chat_log.content)
+        messages = _convert_content_to_param(chat_log.content, shorten_tool_call_id)
 
         # Build tools list from custom functions
         tools: list[ChatCompletionToolParam] = [
@@ -197,7 +220,6 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
         # Build API parameters based on model configuration
         api_kwargs: dict[str, Any] = {
             "model": model,
-            "user": chat_log.conversation_id,
             "stream": True,
             "stream_options": {"include_usage": True},
         }
@@ -251,7 +273,8 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
         # To prevent infinite loops, we limit the number of iterations
         for n_requests in range(MAX_TOOL_ITERATIONS):
             # Update tool_choice based on function call count
-            if tools and n_requests >= max_function_calls:
+            # -1 means unlimited function calls
+            if tools and max_function_calls >= 0 and n_requests >= max_function_calls:
                 tool_kwargs["tool_choice"] = "none"
 
             _LOGGER.info("Prompt for %s: %s", model, json.dumps(messages))
@@ -301,7 +324,7 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
                 chat_log.async_add_assistant_content_without_tools(tool_result_content)
 
             # Update messages for next iteration
-            messages = _convert_content_to_param(chat_log.content)
+            messages = _convert_content_to_param(chat_log.content, shorten_tool_call_id)
 
             # Check if we need to continue (if there are pending tool results)
             if not chat_log.unresponded_tool_results:
@@ -347,7 +370,17 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
             delta = choice.delta
 
             if delta.content:
-                yield {"content": delta.content}
+                # Ensure content is a string (Mistral might return unexpected types)
+                content_value = delta.content
+                if not isinstance(content_value, str):
+                    _LOGGER.warning(
+                        "Received non-string content from API: %s (type: %s)",
+                        content_value,
+                        type(content_value),
+                    )
+                    content_value = str(content_value) if content_value else ""
+                if content_value:
+                    yield {"content": content_value}
 
             if delta.tool_calls:
                 for tool_call_delta in delta.tool_calls:
