@@ -3,14 +3,7 @@ This is custom component of Home Assistant.
 
 Derived from [OpenAI Conversation](https://www.home-assistant.io/integrations/openai_conversation/) with some new features such as call-service.
 
-## Changelog
-
-| Version       | Date    | Changes                                                            |
-|---------------|---------|--------------------------------------------------------------------|
-| `3.0.0-beta8` | 2026-02 | Add skills support, change default system prompt                   |
-| `3.0.0-beta5` | 2026-01 | Add AI Task entity, change default system prompt                   |
-| `3.0.0-beta4` | 2026-01 | Reasoning model support (GPT-5, o3)                                |
-| `3.0.0-beta2` | 2026-01 | exposed_entities available in template in developer tools |
+📚 **[Documentation](https://extended-openai-conversation.mintlify.app)**
 
 ## Additional Features
 - Ability to call service of Home Assistant
@@ -60,25 +53,6 @@ https://github.com/jekalmin/extended_openai_conversation/assets/2917984/04b93aa6
 
 ### 5. Play Netflix 
 https://github.com/jekalmin/extended_openai_conversation/assets/2917984/64ba656e-3ae7-4003-9956-da71efaf06dc
-
-## Skills
-Skills are reusable AI capabilities that can be enabled per conversation. Each skill provides specialized knowledge and instructions to the AI agent.
-
-Skills are loaded from `<config directory>/extended_openai_conversation/skills/` directory. You can download skills from the repository or create your own.
-
-### Using Skills
-1. Download a skill using the service:
-   ```yaml
-   service: extended_openai_conversation.download_skill
-   data:
-     skill_name: crypto
-   ```
-
-2. Enable skills through Options:
-   - Go to Settings > Voice Assistants > Edit Assistant > Options
-   - Select skills to enable from the list
-
-For detailed information about creating and managing skills, see [Skills Documentation](https://github.com/jekalmin/extended_openai_conversation/tree/develop/examples/skills).
 
 ## Configuration
 ### Options
@@ -184,6 +158,25 @@ Reserved Parameters:
           type: integer
           minimum: 0
     ```
+
+### Skills
+Skills are reusable AI capabilities that can be enabled per conversation. Each skill provides specialized knowledge and instructions to the AI agent.
+
+Skills are loaded from `<config directory>/extended_openai_conversation/skills/` directory. You can download skills from the repository or create your own.
+
+#### Using Skills
+1. Download a skill using the service:
+   ```yaml
+   service: extended_openai_conversation.download_skill
+   data:
+     skill_name: crypto
+   ```
+
+2. Enable skills through Options:
+   - Go to Settings > Voice Assistants > Edit Assistant > Options
+   - Select skills to enable from the list
+
+For detailed information about creating and managing skills, see [Skills Documentation](https://github.com/jekalmin/extended_openai_conversation/tree/develop/examples/skills).
 
 ## Function Usage
 This is an example of configuration of functions.
@@ -662,6 +655,8 @@ Get last changed date time of state | Get state at specific time
 
 ## Practical Usage
 See more practical [examples](https://github.com/jekalmin/extended_openai_conversation/tree/main/examples).
+
+For comprehensive documentation, visit [https://extended-openai-conversation.mintlify.app](https://extended-openai-conversation.mintlify.app).
 
 ## Logging
 In order to monitor logs of API requests and responses, add following config to `configuration.yaml` file

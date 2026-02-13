@@ -1,0 +1,134 @@
+---
+title: "Installation"
+description: "Install Extended OpenAI Conversation via HACS or manually"
+---
+
+## Prerequisites
+
+- Home Assistant instance
+- OpenAI API key ([How to generate](https://www.home-assistant.io/integrations/openai_conversation/#generate-an-api-key))
+
+## Installation Methods
+
+<Tabs>
+  <Tab title="HACS (Recommended)">
+    ### Install via HACS
+
+    <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=jekalmin&repository=extended_openai_conversation&category=integration" target="_blank">
+      <img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open in HACS" />
+    </a>
+
+    <Steps>
+      <Step title="Install integration">
+        1. Click the button above or open HACS in Home Assistant
+        2. Go to "Integrations"
+        3. Click "+ Explore & Download Repositories"
+        4. Search for "Extended OpenAI Conversation"
+        5. Click "Download"
+        6. Restart Home Assistant
+      </Step>
+    </Steps>
+  </Tab>
+
+  <Tab title="Manual Installation">
+    ### Manual Installation
+
+    <Steps>
+      <Step title="Download files">
+        Download the `extended_openai_conversation` folder from the [repository](https://github.com/jekalmin/extended_openai_conversation)
+      </Step>
+
+      <Step title="Copy to custom_components">
+        Copy the folder to `<config directory>/custom_components/`
+
+        Your directory structure should look like:
+        ```
+        <config>/
+        └── custom_components/
+            └── extended_openai_conversation/
+                ├── __init__.py
+                ├── manifest.json
+                └── ...
+        ```
+      </Step>
+
+      <Step title="Restart">
+        Restart Home Assistant
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Setup
+
+<a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=extended_openai_conversation" target="_blank">
+  <img src="https://my.home-assistant.io/badges/config_flow_start.svg" alt="Add Integration to Home Assistant" />
+</a>
+
+<Steps>
+  <Step title="Add integration">
+    1. Click the button above or go to **Settings** > **Devices & Services**
+    2. Click **Add Integration** button (bottom right)
+    3. Search for "Extended OpenAI Conversation"
+    4. Follow the setup wizard
+  </Step>
+
+  <Step title="Enter API key">
+    Provide your OpenAI API key during setup.
+
+    <Note>
+    If using OpenAI-compatible servers (Azure OpenAI, LocalAI, etc.), specify the "Base URL" during setup. Otherwise, leave it as the default.
+
+    For local LLM servers (Ollama, LM Studio, etc.), you can enter any value for the API key as it's not validated by local servers.
+    </Note>
+  </Step>
+
+  <Step title="Configure voice assistant">
+    1. Go to **Settings** > [Voice Assistants](https://my.home-assistant.io/redirect/voice_assistants/)
+    2. Click to edit your Assistant (named "Home Assistant" by default)
+    3. Select **Extended OpenAI Conversation** from the "Conversation agent" dropdown
+
+    <Frame>
+      <img width="500" alt="Voice Assistant Configuration" src="https://github.com/jekalmin/extended_openai_conversation/assets/2917984/0849d241-0b82-47f6-9956-fdb82d678aca" />
+    </Frame>
+  </Step>
+</Steps>
+
+## Expose Entities
+
+<Warning>
+You must expose entities for the AI to control them. Without exposed entities, the assistant won't know what devices are available.
+</Warning>
+
+1. Navigate to: `http://{your-home-assistant}/config/voice-assistants/expose`
+2. Select entities you want the AI to control
+3. Enable the toggle for each entity
+
+## Verify Installation
+
+Test your setup by asking the assistant a simple question:
+
+```
+"What lights are available?"
+```
+
+If configured correctly, the assistant should respond with a list of your exposed light entities.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Configuration"
+    icon="sliders"
+    href="/configuration"
+  >
+    Customize options and behavior
+  </Card>
+  <Card
+    title="Functions"
+    icon="code"
+    href="/functions/overview"
+  >
+    Learn about function types
+  </Card>
+</CardGroup>
