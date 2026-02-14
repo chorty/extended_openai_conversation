@@ -1,0 +1,72 @@
+- spec:
+    name: read_relative_path
+    description: relative path from working directory
+    parameters:
+      type: object
+      properties:
+        filename:
+          type: string
+          description: Name of file to read
+          default: test.txt
+      required: []
+  function:
+    type: read_file
+    path: "{{ filename }}"
+
+- spec:
+    name: read_absolute_path_of_working_directory
+    description: Read file with absolute path
+    parameters:
+      type: object
+      properties:
+        filepath:
+          type: string
+          description: Absolute path to file
+      required:
+      - filepath
+  function:
+    type: read_file
+    path: "{{ filepath }}"
+
+- spec:
+    name: read_absolute_path_outside_working_directory
+    description: Read file with absolute path
+    parameters:
+      type: object
+      properties:
+        filepath:
+          type: string
+          description: Absolute path to file
+      required:
+      - filepath
+  function:
+    type: read_file
+    path: "{{ filepath }}"
+
+- spec:
+    name: read_with_custom_allow_dir
+    description: Read file from custom allowed directory
+    parameters:
+      type: object
+      properties:
+        filepath:
+          type: string
+          description: Path to file
+      required:
+      - filepath
+  function:
+    type: read_file
+    path: "{{ filepath }}"
+    allow_dir:
+    - "/tmp"
+
+- spec:
+    name: read_unicode_file
+    description: Read file with unicode content
+    parameters:
+      type: object
+      properties: {}
+      required: []
+  function:
+    type: read_file
+    path: "unicode.txt"

@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.template import TemplateEnvironment
 
-from .const import DOMAIN
+from .const import DEFAULT_WORKING_DIRECTORY, DOMAIN
 from .helpers import get_exposed_entities
+from .skills import SkillManager
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -20,6 +22,8 @@ DATA_TEMPLATE_MANAGER = "template_manager"
 
 TEMPLATE_EXTENDED_OPENAI = "extended_openai"
 TEMPLATE_GET_ENTITIES = "exposed_entities"
+TEMPLATE_WORKING_DIRECTORY = "working_directory"
+TEMPLATE_SKILL_DIR = "skill_dir"
 
 
 async def async_setup_templates(hass: HomeAssistant) -> bool:
@@ -50,11 +54,42 @@ class ExtendedOpenAITemplateManager:
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the template manager."""
         self.hass = hass
-        self._extended_openai = {TEMPLATE_GET_ENTITIES: self._get_exposed_entities}
+        self._extended_openai = {
+            TEMPLATE_GET_ENTITIES: self._get_exposed_entities,
+            TEMPLATE_WORKING_DIRECTORY: self._get_working_directory,
+            TEMPLATE_SKILL_DIR: self._get_skill_dir,
+        }
         self._original_init = None
 
     def _get_exposed_entities(self) -> list[dict[str, Any]]:
         return get_exposed_entities(self.hass)
+
+    def _get_working_directory(self) -> str:
+        """Get the absolute working directory path."""
+        working_dir = DEFAULT_WORKING_DIRECTORY
+        if Path(working_dir).is_absolute():
+            return str(Path(working_dir))
+        return str(Path(self.hass.config.config_dir) / working_dir)
+
+    def _get_skill_dir(self, name: str) -> str:
+        """Get the absolute directory path for a skill by name.
+
+        Args:
+            name: The skill name (e.g., 'crypto', 'skill-creator')
+
+        Returns:
+            Absolute path to the skill directory
+
+        Raises:
+            ValueError: If the skill is not found
+        """
+        manager = SkillManager._instance
+        if manager is None:
+            raise ValueError("SkillManager not initialized")
+        skill = manager.get_skill(name)
+        if skill is None:
+            raise ValueError(f"Skill not found: {name}")
+        return str(skill.path.parent)
 
     async def async_setup(self) -> None:
         """Set up the template functions."""

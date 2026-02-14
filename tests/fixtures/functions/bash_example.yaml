@@ -1,0 +1,136 @@
+- spec:
+    name: list_directory
+    description: List files in current directory
+    parameters:
+      type: object
+      properties: {}
+      required: []
+  function:
+    type: bash
+    command: "ls -la"
+
+- spec:
+    name: list_root_directory_restricted
+    description: List root directory (should be blocked by workspace restriction)
+    parameters:
+      type: object
+      properties: {}
+      required: []
+  function:
+    type: bash
+    command: "ls -la /root"
+
+- spec:
+    name: list_root_directory_unrestricted
+    description: List root directory with workspace restriction disabled
+    parameters:
+      type: object
+      properties: {}
+      required: []
+  function:
+    type: bash
+    command: "ls -la /root"
+    restrict_to_workspace: false
+
+- spec:
+    name: print_working_directory
+    description: Print current working directory
+    parameters:
+      type: object
+      properties: {}
+      required: []
+  function:
+    type: bash
+    command: "pwd"
+
+- spec:
+    name: pwd_blocked_by_allowlist
+    description: PWD command that should be blocked by allow patterns
+    parameters:
+      type: object
+      properties: {}
+      required: []
+  function:
+    type: bash
+    command: "pwd"
+    allow_patterns:
+    - "^ls "
+    - "^echo "
+
+- spec:
+    name: rm_rf
+    description: rm rf
+    parameters:
+      type: object
+      properties: {}
+      required: []
+  function:
+    type: bash
+    command: "rm -rf ."
+
+- spec:
+    name: chmod_recursive
+    description: Change permissions recursively (dangerous)
+    parameters:
+      type: object
+      properties: {}
+      required: []
+  function:
+    type: bash
+    command: "chmod -R 777 ."
+
+- spec:
+    name: disk_wipe
+    description: Wipe disk with dd (extremely dangerous)
+    parameters:
+      type: object
+      properties: {}
+      required: []
+  function:
+    type: bash
+    command: "dd if=/dev/zero of=/dev/sda"
+
+- spec:
+    name: path_traversal_attack
+    description: Path traversal attack using relative paths
+    parameters:
+      type: object
+      properties: {}
+      required: []
+  function:
+    type: bash
+    command: "cat ../../../etc/passwd"
+
+# 위험한 명령어 예시
+
+- spec:
+    name: custom_directory_command
+    description: Read file from custom directory using cwd parameter
+    parameters:
+      type: object
+      properties:
+        directory:
+          type: string
+          description: Custom directory path
+        filename:
+          type: string
+          description: Filename to read
+      required:
+      - directory
+      - filename
+  function:
+    type: bash
+    command: "cat {{ filename }}"
+    cwd: "{{ directory }}"
+    restrict_to_workspace: false
+
+- spec:
+    name: generate_long_output
+    description: Generate output longer than truncation limit to test output truncation
+    parameters:
+      type: object
+      properties: {}
+      required: []
+  function:
+    type: bash
+    command: "python3 -c \"print('A' * 20000)\""
