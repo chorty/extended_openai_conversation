@@ -1,0 +1,73 @@
+---
+description: "A Home Assistant custom component that extends OpenAI Conversation with service calls, automation creation, and advanced AI capabilities"
+title: "Introduction"
+---
+
+Extended OpenAI Conversation is a custom component for Home Assistant that enhances the official OpenAI Conversation integration with powerful new features.
+
+## Key Features
+
+<Columns cols={2}>
+  <Card title="Service Calls" icon="gears">
+    Call any Home Assistant service through natural language conversations
+  </Card>
+  <Card title="Automation Creation" icon="robot">
+    Create automations dynamically using AI-generated YAML configurations
+  </Card>
+  <Card title="External Data" icon="globe">
+    Retrieve data from external APIs and web pages
+  </Card>
+  <Card title="State History" icon="clock-rotate-left">
+    Access historical entity states and analyze trends
+  </Card>
+  <Card title="Skills System" icon="puzzle-piece">
+    Extend AI capabilities with reusable skill modules
+  </Card>
+  <Card title="Function Types" icon="function">
+    Multiple function types: native, template, script, REST, scrape, composite, and SQLite
+  </Card>
+</Columns>
+
+## How It Works
+
+Extended OpenAI Conversation leverages OpenAI's [function calling](https://platform.openai.com/docs/guides/function-calling) feature to enable the AI to interact with Home Assistant services.
+
+Since OpenAI models already understand how to control smart home devices, you simply need to expose your entities through the [Voice Assistants](https://my.home-assistant.io/redirect/voice_assistants/) interface.
+
+<Note>
+  The AI uses the exposed entities to understand your home's capabilities and generate appropriate service calls.
+</Note>
+
+## Quick Example
+
+<Steps>
+  <Step title="Ask a question">
+    "Turn on the living room lights"
+  </Step>
+  <Step title="AI understands">
+    The model identifies which service to call (`light.turn_on`)
+  </Step>
+  <Step title="Function executes">
+    The component calls the service with the correct entity
+  </Step>
+  <Step title="Confirmation">
+    You receive a natural language confirmation
+  </Step>
+</Steps>
+
+## Get Started
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install the component via HACS or manually
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/configuration">
+    Configure options and customize behavior
+  </Card>
+  <Card title="Functions" icon="code" href="/functions/overview">
+    Learn about available function types
+  </Card>
+  <Card title="Skills" icon="graduation-cap" href="/skills/overview">
+    Extend capabilities with skills
+  </Card>
+</CardGroup>

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Extended OpenAI Conversation",
+  "colors": {
+    "primary": "#10A37F",
+    "light": "#10A37F",
+    "dark": "#0D8A6A"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "index",
+              "installation",
+              "configuration"
+            ]
+          },
+          {
+            "group": "Functions",
+            "pages": [
+              "functions/overview",
+              "functions/native",
+              "functions/template",
+              "functions/script",
+              "functions/rest",
+              "functions/scrape",
+              "functions/composite",
+              "functions/sqlite",
+              "functions/bash",
+              "functions/read_file",
+              "functions/write_file",
+              "functions/edit_file"
+            ]
+          },
+          {
+            "group": "Skills",
+            "pages": [
+              "skills/overview",
+              "skills/discover-skills",
+              "skills/creating-skills"
+            ]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "GitHub",
+          "href": "https://github.com/jekalmin/extended_openai_conversation",
+          "icon": "github"
+        },
+        {
+          "anchor": "Home Assistant",
+          "href": "https://www.home-assistant.io",
+          "icon": "house"
+        }
+      ]
+    }
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/jekalmin/extended_openai_conversation"
+      }
+    ]
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity",
+      "mcp",
+      "cursor",
+      "vscode"
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/jekalmin/extended_openai_conversation"
+    }
+  }
+}

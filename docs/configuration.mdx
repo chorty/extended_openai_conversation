@@ -1,0 +1,358 @@
+---
+title: "Configuration"
+description: "Configure Extended OpenAI Conversation options and customize behavior"
+---
+
+Configure Extended OpenAI Conversation through the Options menu in your Voice Assistant settings.
+
+## Access Configuration
+
+<Steps>
+  <Step title="Navigate to Voice Assistants">
+    Go to **Settings** > **Voice Assistants**
+  </Step>
+  <Step title="Edit Assistant">
+    Click on your Extended OpenAI Conversation assistant
+  </Step>
+  <Step title="Open Options">
+    Click the **Options** button to access configuration
+  </Step>
+</Steps>
+
+<Frame>
+  <img width="400" alt="Edit Assist" src="https://github.com/jekalmin/extended_openai_conversation/assets/2917984/bb394cd4-5790-4ac9-9311-dbcab0fcca56" />
+</Frame>
+
+## Configuration Options
+
+### Options
+
+<AccordionGroup>
+  <Accordion title="Prompt">
+    **Type**: Template (Jinja2)
+
+    **Default**: System prompt with Home Assistant context
+
+    Custom system prompt to guide AI behavior. Supports Jinja2 templates with access to context variables and custom functions.
+
+    ### Available Variables
+
+    **Context Variables:**
+    - `ha_name` - Home Assistant location name
+    - `exposed_entities` - List of exposed entity objects
+    - `current_device_id` - Device ID where conversation was initiated
+    - `user_input` - User input object with conversation context
+    - `skills` - List of enabled skill objects
+
+    **Extended OpenAI Functions:**
+    - `{{extended_openai.exposed_entities()}}` - Get list of exposed entities
+    - `{{extended_openai.working_directory()}}` - Get working directory path
+    - `{{extended_openai.skill_dir(name)}}` - Get skill directory path by name
+
+    **Home Assistant Template Functions:**
+    - `{{now()}}` - Current datetime
+    - `{{area_id(entity_id)}}` - Get area ID for entity
+    - `{{states}}` - Access all entity states
+    - And all other [Home Assistant template functions](https://www.home-assistant.io/docs/configuration/templating/)
+
+    ### Example Usage
+
+    ```jinja
+    You are a helpful assistant for {{ha_name}}.
+    Current time: {{now()}}
+    Current area: {{area_id(current_device_id)}}
+    Working directory: {{extended_openai.working_directory()}}
+
+    Available devices:
+    {% for entity in exposed_entities -%}
+    - {{entity.name}} ({{entity.entity_id}}): {{entity.state}}
+    {% endfor -%}
+
+    {% if skills %}
+    Enabled skills: {% for skill in skills %}{{skill.name}}{% if not loop.last %}, {% endif %}{% endfor %}
+    {% endif %}
+    ```
+
+    See the default prompt for a complete example.
+  </Accordion>
+
+  <Accordion title="Model">
+    **Type**: String
+
+    **Default**: `gpt-5-mini`
+
+    Select the OpenAI model to use. Examples:
+    - `gpt-5-mini` - Fast and cost-effective
+    - `gpt-4o-mini` - Balanced performance
+    - Custom models from compatible providers
+  </Accordion>
+
+  <Accordion title="Max Tokens">
+    **Type**: Integer
+
+    **Default**: `500`
+
+    Maximum number of tokens in the AI response. Controls response length and API costs.
+
+    <Note>
+    For o1/o3/o4/gpt-5 models, this becomes `max_completion_tokens`.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Maximum Function Calls Per Conversation">
+    **Type**: Integer
+
+    **Default**: `10`
+
+    Limit the number of function calls in a single conversation to prevent infinite loops.
+
+    <Warning>
+    Without this limit, functions might call each other repeatedly, consuming API credits.
+    </Warning>
+
+    **Recommended value**: `5-10`
+  </Accordion>
+
+  <Accordion title="Skills">
+    **Type**: Multi-select
+
+    Select which skills to enable for this assistant. Skills provide reusable AI capabilities and instructions.
+
+    <Info>
+    Skills are loaded from `/config/extended_openai_conversation/skills/`. Use the `download_skill` service to add new skills.
+    </Info>
+
+    See [Skills Overview](/skills/overview) for detailed information.
+  </Accordion>
+
+  <Accordion title="Functions">
+    **Type**: YAML
+
+    **Default**: `execute_services`, `get_attributes`, `load_skill`, `bash`
+
+    Define custom functions that the AI can call. Each function consists of:
+    - `spec`: OpenAI function schema defining parameters
+    - `function`: Implementation details (type and configuration)
+
+    See [Functions Overview](/functions/overview) for detailed information.
+  </Accordion>
+
+  <Accordion title="Context Threshold">
+    **Type**: Integer
+
+    **Default**: `40000`
+
+    Maximum number of tokens in conversation history before context truncation is triggered.
+
+    <Note>
+    When exceeded, messages are cleared according to the Context Truncate Strategy.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Context Truncate Strategy">
+    **Type**: Select
+
+    **Default**: `clear`
+
+    **Options**: `clear`
+
+    Strategy for handling context when the threshold is exceeded.
+
+    - `clear`: Remove all previous messages and start fresh
+  </Accordion>
+</AccordionGroup>
+
+<Info>
+**Working Directory**: All file operations and bash commands use `/config/extended_openai_conversation/` as the default working directory. See [File Functions](/functions/read_file) and [Bash Functions](/functions/bash) for details.
+</Info>
+
+### Advanced Options
+
+Enable **Advanced Options** in the configuration to access these model-specific parameters. The available options depend on the selected model.
+
+<AccordionGroup>
+  <Accordion title="Top P">
+    **Type**: Number (0-1, step 0.05)
+
+    **Default**: `1`
+
+    **Available for**: Standard models (gpt-4, gpt-4o, etc.)
+
+    Nucleus sampling parameter. Controls diversity via nucleus sampling. Lower values make responses more focused and deterministic.
+
+    <Info>
+    Not available for reasoning models (o1, o3, o4, gpt-5).
+    </Info>
+  </Accordion>
+
+  <Accordion title="Temperature">
+    **Type**: Number (0-2, step 0.05)
+
+    **Default**: `0.5`
+
+    **Available for**: Standard models (gpt-4, gpt-4o, etc.)
+
+    Controls randomness in responses:
+    - `0.0` - Deterministic, consistent answers
+    - `0.5` - Balanced creativity
+    - `1.0` - Creative, varied responses
+    - `2.0` - Maximum creativity
+
+    <Info>
+    Not available for reasoning models (o1, o3, o4, gpt-5).
+    </Info>
+  </Accordion>
+
+  <Accordion title="Reasoning Effort">
+    **Type**: Select
+
+    **Default**: `low`
+
+    **Options**: `low`, `medium`, `high`
+
+    **Available for**: Reasoning models (o1, o3, o4, gpt-5)
+
+    Controls the reasoning depth for reasoning models:
+    - `low`: Faster responses, basic reasoning
+    - `medium`: Balanced reasoning depth
+    - `high`: Deep reasoning, slower responses
+
+    <Note>
+    Higher effort increases response time and token usage.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Service Tier">
+    **Type**: Select
+
+    **Default**: `flex`
+
+    **Options**: `auto`, `default`, `flex`, `priority`
+
+    **Available for**: o3, o4, gpt-5 models
+
+    Controls the service tier affecting response latency and throughput:
+    - `flex`: Balanced performance and cost
+    - `priority`: Faster responses, higher cost
+    - `auto`: Automatic selection based on load
+    - `default`: Standard tier
+  </Accordion>
+
+  <Accordion title="Shorten Tool Call ID">
+    **Type**: Boolean
+
+    **Default**: `false`
+
+    Enable to shorten tool call IDs for compatibility with certain providers (e.g., Mistral AI).
+
+    <Warning>
+    Only enable if your API provider explicitly requires shortened tool call IDs. Most providers work with standard IDs.
+    </Warning>
+  </Accordion>
+</AccordionGroup>
+
+## Functions Configuration
+
+Functions are defined in YAML format. Here's the default configuration:
+
+```yaml
+- spec:
+    name: execute_services
+    description: Use this function to execute service of devices in Home Assistant.
+    parameters:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            type: object
+            properties:
+              domain:
+                type: string
+                description: The domain of the service
+              service:
+                type: string
+                description: The service to be called
+              service_data:
+                type: object
+                description: The service data object to indicate what to control.
+                properties:
+                  entity_id:
+                    type: string
+                    description: The entity_id retrieved from available devices. It must start with domain, followed by dot character.
+                required:
+                - entity_id
+            required:
+            - domain
+            - service
+            - service_data
+  function:
+    type: native
+    name: execute_service
+```
+
+<Note>
+You can add multiple function definitions to extend the AI's capabilities. See the [Functions](/functions/overview) section for examples.
+</Note>
+
+## Skills Configuration
+
+Skills are enabled through a simple multi-select interface:
+
+1. Download skills using the `download_skill` service
+2. In Options, select which skills to enable
+3. Skills provide context-specific instructions to the AI
+
+Learn more in [Skills Overview](/skills/overview).
+
+## Logging
+
+Monitor API requests and responses by adding this to your `configuration.yaml`:
+
+```yaml
+logger:
+  logs:
+    custom_components.extended_openai_conversation: info
+```
+
+This logs:
+- Function calls and responses
+- OpenAI API interactions
+- Skill loading and execution
+- Error messages and debugging info
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Limit function calls" icon="circle-exclamation">
+    Set a reasonable max function calls (5-10) to prevent loops
+  </Card>
+  <Card title="Test functions" icon="vial">
+    Test each custom function individually before deploying
+  </Card>
+  <Card title="Monitor logs" icon="file-lines">
+    Enable logging during initial setup to debug issues
+  </Card>
+  <Card title="Start simple" icon="seedling">
+    Begin with basic functions, add complexity gradually
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Functions Overview"
+    icon="code"
+    href="/functions/overview"
+  >
+    Learn about available function types
+  </Card>
+  <Card
+    title="Skills Overview"
+    icon="graduation-cap"
+    href="/skills/overview"
+  >
+    Extend capabilities with skills
+  </Card>
+</CardGroup>
