@@ -48,7 +48,8 @@ from .const import (
     DOMAIN,
 )
 from .exceptions import FunctionNotFound, ParseArgumentsFailed, TokenLengthExceededError
-from .helpers import get_function_executor, get_model_config
+from .functions import get_function
+from .helpers import get_model_config
 
 if TYPE_CHECKING:
     from . import ExtendedOpenAIConfigEntry
@@ -185,7 +186,7 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
     async def _async_handle_chat_log(
         self,
         chat_log: conversation.ChatLog,
-        custom_functions: list[dict[str, Any]],
+        function_tools: list[dict[str, Any]],
         exposed_entities: list[dict[str, Any]],
         llm_context: llm.LLMContext | None = None,
         structure_name: str | None = None,
@@ -208,13 +209,13 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
 
         messages = _convert_content_to_param(chat_log.content, shorten_tool_call_id)
 
-        # Build tools list from custom functions
+        # Build functions list from custom functions
         tools: list[ChatCompletionToolParam] = [
             ChatCompletionToolParam(
                 type="function",
                 function=func_spec["spec"],
             )
-            for func_spec in custom_functions
+            for func_spec in function_tools
         ]
 
         # Build API parameters based on model configuration
@@ -301,22 +302,22 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
                 _LOGGER.info("Response Tool Calls %s", pending_tool_calls)
 
             # Execute custom functions
-            for tool_call in pending_tool_calls:
-                custom_func = next(
+            for tool_input in pending_tool_calls:
+                function_tool = next(
                     (
                         f
-                        for f in (custom_functions)
-                        if f["spec"]["name"] == tool_call.tool_name
+                        for f in (function_tools)
+                        if f["spec"]["name"] == tool_input.tool_name
                     ),
                     None,
                 )
 
-                if custom_func is None:
-                    raise FunctionNotFound(tool_call.tool_name)
+                if function_tool is None:
+                    raise FunctionNotFound(tool_input.tool_name)
 
-                tool_result_content = await self._execute_custom_function(
-                    custom_func,
-                    tool_call,
+                tool_result_content = await self._execute_function_tool(
+                    function_tool,
+                    tool_input,
                     llm_context,
                     exposed_entities,
                 )
@@ -430,26 +431,29 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
             if choice.finish_reason == "stop":
                 break
 
-    async def _execute_custom_function(
+    async def _execute_function_tool(
         self,
-        function_spec: dict[str, Any],
+        function_tool: dict[str, Any],
         tool_input: llm.ToolInput,
         llm_context: llm.LLMContext | None,
         exposed_entities: list[dict[str, Any]],
     ) -> conversation.ToolResultContent:
         """Execute a custom function."""
-        function = function_spec["function"]
         arguments: dict[str, Any] = tool_input.tool_args
-        function_executor = get_function_executor(function["type"])
+        function_config = function_tool["function"]
+        function = get_function(function_config["type"])
 
         if self.should_run_in_background(arguments):
             # create a delayed function and execute in background
-            function_executor = get_function_executor("composite")
+            function_config = self.get_delayed_function_config(
+                function_config, arguments
+            )
+            function = get_function(function_config["type"])
             self.entry.async_create_task(
                 self.hass,
-                function_executor.execute(
+                function.execute(
                     self.hass,
-                    self.get_delayed_function(function, arguments),
+                    function_config,
                     arguments,
                     llm_context,
                     exposed_entities,
@@ -457,8 +461,8 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
             )
             result = "Scheduled"
         else:
-            result = await function_executor.execute(
-                self.hass, function, arguments, llm_context, exposed_entities
+            result = await function.execute(
+                self.hass, function_config, arguments, llm_context, exposed_entities
             )
 
         return conversation.ToolResultContent(
@@ -472,8 +476,8 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
         """Check if function needs delay."""
         return isinstance(arguments, dict) and arguments.get("delay") is not None
 
-    def get_delayed_function(
-        self, function: dict[str, Any], arguments: dict[str, Any]
+    def get_delayed_function_config(
+        self, function_config: dict[str, Any], arguments: dict[str, Any]
     ) -> dict[str, Any]:
         """Execute function with delay."""
         # create a composite function with delay in script function
@@ -484,7 +488,7 @@ class ExtendedOpenAIBaseLLMEntity(Entity):
                     "type": "script",
                     "sequence": [{"delay": arguments["delay"]}],
                 },
-                function,
+                function_config,
             ],
         }
 

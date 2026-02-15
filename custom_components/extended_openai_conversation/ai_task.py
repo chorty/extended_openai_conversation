@@ -62,10 +62,10 @@ class ExtendedOpenAITaskEntity(
     ) -> ai_task.GenDataTaskResult:
         """Handle a generate data task."""
         # Call _async_handle_chat_log with empty custom_functions and exposed_entities
-        # AI Task operates without tools
+        # AI Task operates without functions
         await self._async_handle_chat_log(
             chat_log,
-            custom_functions=[],
+            function_tools=[],
             exposed_entities=[],
             llm_context=None,
             structure_name=task.name,

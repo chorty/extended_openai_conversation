@@ -1,25 +1,22 @@
-"""Tests for SqliteFunctionExecutor using yaml definitions."""
+"""Tests for SqliteFunction using yaml definitions."""
 
 import pytest
 
-# Import FunctionExecutors and test helpers
-from custom_components.extended_openai_conversation.helpers import (
-    SqliteFunctionExecutor,
-    get_function_executor,
-)
-from tests.helpers import get_function_from_yaml
+# Import Tools and test helpers
+from custom_components.extended_openai_conversation.functions import SqliteFunction
+from tests.helpers import prepare_function_tool_from_yaml
 
 
-class TestSqliteFunctionExecutorYaml:
-    """Test SqliteFunctionExecutor using yaml definitions."""
+class TestSqliteFunctionYaml:
+    """Test SqliteFunction using yaml definitions."""
 
     @pytest.fixture
-    def executor(self):
-        """Create SqliteFunctionExecutor instance."""
-        return SqliteFunctionExecutor()
+    def function(self):
+        """Create TemplateFunction instance."""
+        return SqliteFunction()
 
     async def test_execute_sqlite_from_yaml(
-        self, hass, executor, temp_db_path, exposed_entities, llm_context
+        self, hass, function, temp_db_path, exposed_entities, llm_context
     ):
         """Test SQLite query execution from yaml definition."""
         import sqlite3
@@ -65,20 +62,17 @@ class TestSqliteFunctionExecutorYaml:
         conn.close()
 
         # Load function from yaml
-        func_def = get_function_from_yaml("sqlite_example.yaml")
+        function_tool = prepare_function_tool_from_yaml("sqlite_example.yaml")
+        function_config = function_tool["function"]
 
-        # Process function through executor's to_arguments
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
-
-        # Add db_url to processed function
-        processed_function["db_url"] = f"file:{temp_db_path}"
+        # Add db_url to function_config
+        function_config["db_url"] = f"file:{temp_db_path}"
 
         # Arguments based on yaml spec parameters
         arguments = {"sensor_name": "sensor.living_room_temperature", "hours": 24}
 
-        result = await executor.execute(
-            hass, processed_function, arguments, llm_context, exposed_entities
+        result = await function.execute(
+            hass, function_config, arguments, llm_context, exposed_entities
         )
 
         # Result should be a list of temperature records

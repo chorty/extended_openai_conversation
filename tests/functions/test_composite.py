@@ -1,34 +1,27 @@
-"""Tests for CompositeFunctionExecutor using yaml definitions."""
+"""Tests for CompositeFunction using yaml definitions."""
 
 import pytest
 
-# Import FunctionExecutors and test helpers
-from custom_components.extended_openai_conversation.helpers import (
-    CompositeFunctionExecutor,
-    get_function_executor,
-)
+# Import Tools and test helpers
+from custom_components.extended_openai_conversation.functions import CompositeFunction
 from homeassistant.core import State
-from tests.helpers import get_function_from_yaml
+from tests.helpers import prepare_function_tool_from_yaml
 
 
-class TestCompositeFunctionExecutorYaml:
-    """Test CompositeFunctionExecutor using yaml definitions."""
+class TestCompositeFunctionYaml:
+    """Test CompositeFunction using yaml definitions."""
 
     @pytest.fixture
-    def executor(self):
-        """Create CompositeFunctionExecutor instance."""
-        return CompositeFunctionExecutor()
+    def function(self):
+        """Create CompositeFunction instance."""
+        return CompositeFunction()
 
     async def test_composite_from_yaml(
-        self, hass, executor, exposed_entities, llm_context
+        self, hass, function, exposed_entities, llm_context
     ):
         """Test composite function execution from yaml definition."""
-        # Load function from yaml
-        func_def = get_function_from_yaml("composite_example.yaml")
-
-        # Process function through executor's to_arguments
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_tool = prepare_function_tool_from_yaml("composite_example.yaml")
+        function_config = function_tool["function"]
 
         # Mock sensor states for the living_room
         def mock_states_get(entity_id):
@@ -48,8 +41,8 @@ class TestCompositeFunctionExecutorYaml:
         # Arguments based on yaml spec parameters
         arguments = {"room_name": "living_room"}
 
-        result = await executor.execute(
-            hass, processed_function, arguments, llm_context, exposed_entities
+        result = await function.execute(
+            hass, function_config, arguments, llm_context, exposed_entities
         )
 
         # Should return formatted room status
@@ -59,12 +52,11 @@ class TestCompositeFunctionExecutorYaml:
         assert "Light: on" in result
 
     async def test_composite_with_different_rooms(
-        self, hass, executor, exposed_entities, llm_context
+        self, hass, function, exposed_entities, llm_context
     ):
         """Test composite function with various rooms."""
-        func_def = get_function_from_yaml("composite_example.yaml")
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_tool = prepare_function_tool_from_yaml("composite_example.yaml")
+        function_config = function_tool["function"]
 
         # Mock sensor states for bedroom
         def mock_states_get(entity_id):
@@ -80,8 +72,8 @@ class TestCompositeFunctionExecutorYaml:
         hass.states.get = mock_states_get
 
         arguments = {"room_name": "bedroom"}
-        result = await executor.execute(
-            hass, processed_function, arguments, llm_context, exposed_entities
+        result = await function.execute(
+            hass, function_config, arguments, llm_context, exposed_entities
         )
 
         assert "Room: Bedroom" in result
