@@ -80,10 +80,6 @@ When a skill file references a relative path, resolve it against the skill's loc
 CONF_CHAT_MODEL = "chat_model"
 DEFAULT_CHAT_MODEL = "gpt-5-mini"
 
-MODEL_PARAMETER_SUPPORT = (
-    {"pattern": r"^gpt-5-(mini|nano)", "unsupported_params": {"top_p"}},
-)
-
 MODEL_TOKEN_PARAMETER_SUPPORT = (
     {
         "pattern": r"(^|-)(gpt-4o|gpt-5|o1|o3|o4)",
@@ -101,8 +97,8 @@ CONF_MAX_FUNCTION_CALLS_PER_CONVERSATION = "max_function_calls_per_conversation"
 DEFAULT_MAX_FUNCTION_CALLS_PER_CONVERSATION = 10
 CONF_SHORTEN_TOOL_CALL_ID = "shorten_tool_call_id"
 DEFAULT_SHORTEN_TOOL_CALL_ID = False
-CONF_FUNCTIONS = "functions"
-DEFAULT_CONF_FUNCTIONS = [
+CONF_FUNCTION_TOOLS = "functions"
+DEFAULT_CONF_FUNCTION_TOOLS = [
     {
         "spec": {
             "name": "execute_services",
@@ -309,7 +305,9 @@ GITHUB_SKILLS_BRANCH = "develop"
 GITHUB_SKILLS_PATH = "examples/skills"
 
 # Working Directory
-DEFAULT_WORKING_DIRECTORY = "extended_openai_conversation/"
+DEFAULT_WORKING_DIRECTORY = (
+    "extended_openai_conversation/"  # /config/extended_openai_conversation/
+)
 
 # File system and shell security settings
 SHELL_TIMEOUT = 300  # seconds
@@ -334,5 +332,5 @@ FILE_READ_SIZE_LIMIT = 1024 * 1024  # 1 MB
 
 # Default allowed directories for file operations
 DEFAULT_ALLOWED_DIRS = [
-    DEFAULT_WORKING_DIRECTORY,  # extended_openai_conversation/
+    DEFAULT_WORKING_DIRECTORY,  # /config/extended_openai_conversation/
 ]

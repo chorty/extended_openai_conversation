@@ -1,38 +1,32 @@
-"""Tests for RestFunctionExecutor using yaml definitions."""
+"""Tests for RestFunction using yaml definitions."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# Import FunctionExecutors and test helpers
-from custom_components.extended_openai_conversation.helpers import (
-    RestFunctionExecutor,
-    get_function_executor,
-)
-from tests.helpers import get_function_from_yaml
+# Import Tools and test helpers
+from custom_components.extended_openai_conversation.functions import RestFunction
+from tests.helpers import prepare_function_tool_from_yaml
 
 
-class TestRestFunctionExecutorYaml:
-    """Test RestFunctionExecutor using yaml definitions."""
+class TestRestFunctionYaml:
+    """Test RestFunction using yaml definitions."""
 
     @pytest.fixture
-    def executor(self):
-        """Create RestFunctionExecutor instance."""
-        return RestFunctionExecutor()
+    def function(self):
+        """Create RestFunction instance."""
+        return RestFunction()
 
     async def test_execute_rest_from_yaml(
-        self, hass, executor, exposed_entities, llm_context
+        self, hass, function, exposed_entities, llm_context
     ):
         """Test REST API call from yaml definition."""
         # Load function from yaml
-        func_def = get_function_from_yaml("rest_example.yaml")
-
-        # Process function through executor's to_arguments
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_tool = prepare_function_tool_from_yaml("rest_example.yaml")
+        function_config = function_tool["function"]
 
         with patch(
-            "custom_components.extended_openai_conversation.helpers.rest.create_rest_data_from_config"
+            "custom_components.extended_openai_conversation.functions.web.rest.create_rest_data_from_config"
         ) as mock_create_rest:
             mock_rest_data = AsyncMock()
             mock_rest_data.async_update = AsyncMock()
@@ -53,8 +47,8 @@ class TestRestFunctionExecutorYaml:
             # Arguments based on yaml spec parameters
             arguments = {"city": "Seoul", "country_code": "KR"}
 
-            result = await executor.execute(
-                hass, processed_function, arguments, llm_context, exposed_entities
+            result = await function.execute(
+                hass, function_config, arguments, llm_context, exposed_entities
             )
 
             # value_template should format weather information

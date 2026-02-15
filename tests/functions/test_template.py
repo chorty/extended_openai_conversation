@@ -1,34 +1,28 @@
-"""Tests for TemplateFunctionExecutor using yaml definitions."""
+"""Tests for TemplateFunction using yaml definitions."""
 
 import pytest
 
-# Import FunctionExecutors and test helpers
-from custom_components.extended_openai_conversation.helpers import (
-    TemplateFunctionExecutor,
-    get_function_executor,
-)
+# Import Tools and test helpers
+from custom_components.extended_openai_conversation.functions import TemplateFunction
 from homeassistant.core import State
-from tests.helpers import get_function_from_yaml
+from tests.helpers import prepare_function_tool_from_yaml
 
 
-class TestTemplateFunctionExecutorYaml:
-    """Test TemplateFunctionExecutor using yaml definitions."""
+class TestTemplateFunctionYaml:
+    """Test TemplateFunction using yaml definitions."""
 
     @pytest.fixture
-    def executor(self):
-        """Create TemplateFunctionExecutor instance."""
-        return TemplateFunctionExecutor()
+    def function(self):
+        """Create TemplateFunction instance."""
+        return TemplateFunction()
 
     async def test_execute_template_from_yaml(
-        self, hass, executor, exposed_entities, llm_context
+        self, hass, function, exposed_entities, llm_context
     ):
         """Test template execution from yaml definition."""
         # Load function from yaml
-        func_def = get_function_from_yaml("template_example.yaml")
-
-        # Process function through executor's to_arguments
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_tool = prepare_function_tool_from_yaml("template_example.yaml")
+        function_config = function_tool["function"]
 
         # Mock sensor states for energy monitoring
         def mock_states_get(entity_id):
@@ -43,8 +37,8 @@ class TestTemplateFunctionExecutorYaml:
         # Arguments based on yaml spec parameters
         arguments = {"show_cost": True}
 
-        result = await executor.execute(
-            hass, processed_function, arguments, llm_context, exposed_entities
+        result = await function.execute(
+            hass, function_config, arguments, llm_context, exposed_entities
         )
 
         # Should return formatted energy summary
@@ -53,12 +47,11 @@ class TestTemplateFunctionExecutorYaml:
         assert "$" in result or "1.5" in result  # Cost (12.5 * 0.12 = 1.5)
 
     async def test_template_without_cost(
-        self, hass, executor, exposed_entities, llm_context
+        self, hass, function, exposed_entities, llm_context
     ):
         """Test template without cost calculation."""
-        func_def = get_function_from_yaml("template_example.yaml")
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_tool = prepare_function_tool_from_yaml("template_example.yaml")
+        function_config = function_tool["function"]
 
         # Mock sensor states
         def mock_states_get(entity_id):
@@ -71,8 +64,8 @@ class TestTemplateFunctionExecutorYaml:
         hass.states.get = mock_states_get
 
         arguments = {"show_cost": False}
-        result = await executor.execute(
-            hass, processed_function, arguments, llm_context, exposed_entities
+        result = await function.execute(
+            hass, function_config, arguments, llm_context, exposed_entities
         )
 
         # Should not include cost when show_cost is False

@@ -27,10 +27,10 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import ExtendedOpenAIConfigEntry
 from .const import (
-    CONF_FUNCTIONS,
+    CONF_FUNCTION_TOOLS,
     CONF_PROMPT,
     CONF_SKILLS,
-    DEFAULT_CONF_FUNCTIONS,
+    DEFAULT_CONF_FUNCTION_TOOLS,
     DEFAULT_PROMPT,
     DEFAULT_WORKING_DIRECTORY,
     DOMAIN,
@@ -38,7 +38,8 @@ from .const import (
 )
 from .entity import ExtendedOpenAIBaseLLMEntity
 from .exceptions import FunctionLoadFailed, FunctionNotFound, InvalidFunction
-from .helpers import get_exposed_entities, get_function_executor
+from .functions import get_function
+from .helpers import get_exposed_entities
 from .skills import Skill, SkillManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -119,11 +120,11 @@ class ExtendedOpenAIAgentEntity(
         # Create LLM context
         llm_context = user_input.as_llm_context(DOMAIN)
 
-        # Get exposed entities for custom functions
+        # Get exposed entities for function tools
         exposed_entities = self._get_exposed_entities()
 
-        # Get custom functions
-        custom_functions = self._get_functions()
+        # Get function tools
+        function_tools = self._get_function_tools()
 
         # Build custom prompt with exposed entities
         system_prompt = self._build_system_prompt(
@@ -138,7 +139,7 @@ class ExtendedOpenAIAgentEntity(
         try:
             await self._async_handle_chat_log(
                 chat_log,
-                custom_functions=custom_functions,
+                function_tools=function_tools,
                 exposed_entities=exposed_entities,
                 llm_context=llm_context,
             )
@@ -221,26 +222,29 @@ class ExtendedOpenAIAgentEntity(
     def _get_exposed_entities(self) -> list[dict[str, Any]]:
         return get_exposed_entities(self.hass)
 
-    def _get_functions(self) -> list[dict[str, Any]]:
+    def _get_function_tools(self) -> list[dict[str, Any]]:
         """Get custom functions configuration."""
         try:
-            function = self.subentry.data.get(CONF_FUNCTIONS)
-            result: list[dict[str, Any]] | None = (
-                yaml.safe_load(function) if function else DEFAULT_CONF_FUNCTIONS
+            function_tools_config = self.subentry.data.get(CONF_FUNCTION_TOOLS)
+            function_tools: list[dict[str, Any]] | None = (
+                yaml.safe_load(function_tools_config)
+                if function_tools_config
+                else DEFAULT_CONF_FUNCTION_TOOLS
             )
-            if result:
-                for setting in result:
-                    if isinstance(setting, dict) and "function" in setting:
-                        function_data = setting["function"]
-                        if isinstance(function_data, dict) and "type" in function_data:
-                            function_executor = get_function_executor(
-                                str(function_data["type"])
-                            )
-                            setting["function"] = function_executor.to_arguments(
-                                function_data
+            if function_tools:
+                for function_tool in function_tools:
+                    if isinstance(function_tool, dict) and "function" in function_tool:
+                        function_config = function_tool["function"]
+                        if (
+                            isinstance(function_config, dict)
+                            and "type" in function_config
+                        ):
+                            function = get_function(function_config["type"])
+                            function_tool["function"] = function.validate_schema(
+                                function_config
                             )
 
-            return result or []
+            return function_tools or []
         except (InvalidFunction, FunctionNotFound) as e:
             raise e
         except Exception as e:

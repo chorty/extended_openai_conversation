@@ -28,10 +28,10 @@ mypy custom_components/extended_openai_conversation
 pytest tests/ -v --timeout=30 --cov=custom_components/extended_openai_conversation --cov-report=term-missing
 
 # Single test file
-pytest tests/function_executors/test_native.py -v
+pytest tests/functions/test_native.py -v
 
 # Single test
-pytest tests/function_executors/test_native.py::test_function_name -v
+pytest tests/functions/test_native.py::test_function_name -v
 ```
 
 ### Dev Setup
@@ -48,11 +48,11 @@ All source lives under `custom_components/extended_openai_conversation/`.
 
 ### Entry Point & Platforms
 `__init__.py` sets up the OpenAI API client (`AsyncClient` or `AsyncAzureOpenAI`) and registers two platforms:
-- **conversation** (`conversation.py`, `entity.py`) — `ExtendedOpenAIAgentEntity` handles user messages via `async_process()`: builds system prompt with exposed entities + skills, calls OpenAI API with tools, executes tool calls through FunctionExecutors, iterates until completion.
+- **conversation** (`conversation.py`, `entity.py`) — `ExtendedOpenAIAgentEntity` handles user messages via `async_process()`: builds system prompt with exposed entities + skills, calls OpenAI API with tools, executes tool calls through Tools, iterates until completion.
 - **ai_task** (`ai_task.py`) — `ExtendedOpenAITaskEntity` handles background AI tasks with structured output (JSON schema), no tool calling.
 
-### Function Executors (`helpers.py`)
-Abstract `FunctionExecutor` base with implementations: `native` (HA services), `template` (Jinja2), `script` (HA scripts), `rest` (HTTP), `scrape` (BeautifulSoup), `bash`, `read_file`, `write_file`, `edit_file`, `sqlite`, `composite` (chains multiple). Each is registered by type string and resolved at tool-call time.
+### Functions (`functions/`)
+Abstract `Function` base class (`functions/base.py`) with implementations in separate files: `native` (HA services), `template` (Jinja2), `script` (HA scripts), `web` (REST/scrape), `bash`, `file` (read/write/edit), `sqlite`, `composite` (chains multiple). Each is registered by type string and resolved at tool-call time.
 
 ### Skills System (`skills.py`)
 `SkillManager` (singleton) discovers and loads skills from `config/extended_openai_conversation/skills/`. Each skill is a directory with a `SKILL.md` file (YAML frontmatter + markdown content). `SkillMdParser` handles parsing. Skills are lazy-loaded — only metadata is kept in memory until content is requested.
@@ -77,7 +77,7 @@ tests/
 ├── conftest.py              # Fixtures: hass mock, llm_context, exposed_entities, temp_db_path
 ├── helpers.py               # Test utilities
 ├── fixtures/                # Test data (functions YAML, mock responses)
-└── function_executors/      # One test file per executor type
+└── functions/               # One test file per function type
 ```
 
 ## Key Conventions

@@ -1,35 +1,34 @@
-"""Tests for NativeFunctionExecutor using yaml definitions."""
+"""Tests for NativeFunction using yaml definitions."""
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-# Import FunctionExecutors and test helpers
-from custom_components.extended_openai_conversation.helpers import (
-    NativeFunctionExecutor,
-    get_function_executor,
+# Import Tools and test helpers
+from custom_components.extended_openai_conversation.functions import (
+    NativeFunction,
+    get_function,
 )
-from tests.helpers import get_function_from_yaml
+from tests.helpers import prepare_function_tool_from_yaml
 
 
-class TestNativeFunctionExecutorYaml:
-    """Test NativeFunctionExecutor using yaml definitions."""
+class TestNativeFunctionYaml:
+    """Test NativeFunction using yaml definitions."""
 
     @pytest.fixture
-    def executor(self):
-        """Create NativeFunctionExecutor instance."""
-        return NativeFunctionExecutor()
+    def function(self):
+        """Create NativeFunction instance."""
+        return NativeFunction()
 
     async def test_execute_service_from_yaml(
-        self, hass, executor, exposed_entities, llm_context
+        self, hass, function, exposed_entities, llm_context
     ):
         """Test service execution from yaml definition."""
         # Load function from yaml
-        func_def = get_function_from_yaml("native_execute_service_example.yaml")
-
-        # Process function through executor's to_arguments
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_tool = prepare_function_tool_from_yaml(
+            "native_execute_service_example.yaml"
+        )
+        function_config = function_tool["function"]
 
         # Arguments in the format that LLM would send (matching spec.parameters)
         arguments = {
@@ -46,8 +45,8 @@ class TestNativeFunctionExecutorYaml:
             ]
         }
 
-        result = await executor.execute(
-            hass, processed_function, arguments, llm_context, exposed_entities
+        result = await function.execute(
+            hass, function_config, arguments, llm_context, exposed_entities
         )
 
         assert result == [{"success": True}]
@@ -57,12 +56,13 @@ class TestNativeFunctionExecutorYaml:
         assert call_args[1]["service"] == "turn_on"
 
     async def test_execute_service_with_defaults(
-        self, hass, executor, exposed_entities, llm_context
+        self, hass, function, exposed_entities, llm_context
     ):
         """Test service execution with minimal parameters."""
-        func_def = get_function_from_yaml("native_execute_service_example.yaml")
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_tool = prepare_function_tool_from_yaml(
+            "native_execute_service_example.yaml"
+        )
+        function_config = function_tool["function"]
 
         # Provide all required parameters
         arguments = {
@@ -78,20 +78,21 @@ class TestNativeFunctionExecutorYaml:
             ]
         }
 
-        result = await executor.execute(
-            hass, processed_function, arguments, llm_context, exposed_entities
+        result = await function.execute(
+            hass, function_config, arguments, llm_context, exposed_entities
         )
 
         assert result == [{"success": True}]
         hass.services.async_call.assert_called_once()
 
     async def test_execute_service_with_delay(
-        self, hass, executor, exposed_entities, llm_context
+        self, hass, function, exposed_entities, llm_context
     ):
         """Test service execution with delay parameter."""
-        func_def = get_function_from_yaml("native_execute_service_example.yaml")
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_tool = prepare_function_tool_from_yaml(
+            "native_execute_service_example.yaml"
+        )
+        function_config = function_tool["function"]
 
         arguments = {
             "delay": {"hours": 0, "minutes": 1, "seconds": 30},
@@ -106,20 +107,21 @@ class TestNativeFunctionExecutorYaml:
             ],
         }
 
-        result = await executor.execute(
-            hass, processed_function, arguments, llm_context, exposed_entities
+        result = await function.execute(
+            hass, function_config, arguments, llm_context, exposed_entities
         )
 
         assert result == [{"success": True}]
         hass.services.async_call.assert_called_once()
 
     async def test_execute_service_multiple_services(
-        self, hass, executor, exposed_entities, llm_context
+        self, hass, function, exposed_entities, llm_context
     ):
         """Test executing multiple services in one call."""
-        func_def = get_function_from_yaml("native_execute_service_example.yaml")
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_tool = prepare_function_tool_from_yaml(
+            "native_execute_service_example.yaml"
+        )
+        function_config = function_tool["function"]
 
         arguments = {
             "list": [
@@ -136,20 +138,21 @@ class TestNativeFunctionExecutorYaml:
             ]
         }
 
-        result = await executor.execute(
-            hass, processed_function, arguments, llm_context, exposed_entities
+        result = await function.execute(
+            hass, function_config, arguments, llm_context, exposed_entities
         )
 
         assert result == [{"success": True}, {"success": True}]
         assert hass.services.async_call.call_count == 2
 
     async def test_execute_service_with_data_instead_of_service_data(
-        self, hass, executor, exposed_entities, llm_context
+        self, hass, function, exposed_entities, llm_context
     ):
         """Test service execution using 'data' instead of 'service_data'."""
-        func_def = get_function_from_yaml("native_execute_service_example.yaml")
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_tool = prepare_function_tool_from_yaml(
+            "native_execute_service_example.yaml"
+        )
+        function_config = function_tool["function"]
 
         arguments = {
             "list": [
@@ -164,24 +167,23 @@ class TestNativeFunctionExecutorYaml:
             ]
         }
 
-        result = await executor.execute(
-            hass, processed_function, arguments, llm_context, exposed_entities
+        result = await function.execute(
+            hass, function_config, arguments, llm_context, exposed_entities
         )
 
         assert result == [{"success": True}]
         hass.services.async_call.assert_called_once()
 
     async def test_execute_service_not_found_error(
-        self, hass, executor, exposed_entities, llm_context
+        self, hass, function, exposed_entities, llm_context
     ):
         """Test service execution fails when service does not exist."""
-        from custom_components.extended_openai_conversation.helpers import (
-            ServiceNotFound,
-        )
+        from homeassistant.exceptions import ServiceNotFound
 
-        func_def = get_function_from_yaml("native_execute_service_example.yaml")
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_tool = prepare_function_tool_from_yaml(
+            "native_execute_service_example.yaml"
+        )
+        function_config = function_tool["function"]
 
         # Mock has_service to return False
         hass.services.has_service = MagicMock(return_value=False)
@@ -197,8 +199,8 @@ class TestNativeFunctionExecutorYaml:
         }
 
         with pytest.raises(ServiceNotFound):
-            await executor.execute(
-                hass, processed_function, arguments, llm_context, exposed_entities
+            await function.execute(
+                hass, function_config, arguments, llm_context, exposed_entities
             )
 
 
@@ -209,13 +211,11 @@ class TestNativeGetHistory:
         """Test getting entity history with composite function."""
         from unittest.mock import MagicMock, patch
 
-        from custom_components.extended_openai_conversation.helpers import (
-            CompositeFunctionExecutor,
+        function_tool = prepare_function_tool_from_yaml(
+            "native_get_history_example.yaml"
         )
-
-        func_def = get_function_from_yaml("native_get_history_example.yaml")
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_config = function_tool["function"]
+        function = get_function(function_config["type"])
 
         arguments = {
             "entity_ids": ["light.living_room"],
@@ -229,19 +229,17 @@ class TestNativeGetHistory:
             return_value={"light.living_room": []}
         )
 
-        executor = CompositeFunctionExecutor()
-
         with (
             patch(
-                "custom_components.extended_openai_conversation.helpers.recorder.get_instance",
+                "custom_components.extended_openai_conversation.functions.native.recorder.get_instance",
                 return_value=mock_recorder_instance,
             ),
             patch(
-                "custom_components.extended_openai_conversation.helpers.recorder.util.session_scope"
+                "custom_components.extended_openai_conversation.functions.native.recorder.util.session_scope"
             ),
         ):
-            result = await executor.execute(
-                hass, processed_function, arguments, llm_context, exposed_entities
+            result = await function.execute(
+                hass, function_config, arguments, llm_context, exposed_entities
             )
 
         # Result is processed through template so it can be string or list
@@ -249,20 +247,22 @@ class TestNativeGetHistory:
 
 
 class TestNativeGetStatistics:
-    """Test NativeFunctionExecutor get_statistics."""
+    """Test NativeFunction get_statistics."""
 
     @pytest.fixture
-    def executor(self):
-        """Create NativeFunctionExecutor instance."""
-        return NativeFunctionExecutor()
+    def function(self):
+        """Create NativeFunction instance."""
+        return NativeFunction()
 
-    async def test_get_statistics(self, hass, executor, exposed_entities, llm_context):
+    async def test_get_statistics(self, hass, function, exposed_entities, llm_context):
         """Test getting statistics."""
         from unittest.mock import MagicMock, patch
 
-        func_def = get_function_from_yaml("native_get_statistics_example.yaml", index=1)
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_tool = prepare_function_tool_from_yaml(
+            "native_get_statistics_example.yaml", index=1
+        )
+        function_config = function_tool["function"]
+        function = get_function(function_config["type"])
 
         arguments = {
             "statistic_ids": ["sensor.temperature"],
@@ -277,24 +277,25 @@ class TestNativeGetStatistics:
         )
 
         with patch(
-            "custom_components.extended_openai_conversation.helpers.recorder.get_instance",
+            "custom_components.extended_openai_conversation.functions.native.recorder.get_instance",
             return_value=mock_recorder_instance,
         ):
-            result = await executor.execute(
-                hass, processed_function, arguments, llm_context, exposed_entities
+            result = await function.execute(
+                hass, function_config, arguments, llm_context, exposed_entities
             )
 
         assert isinstance(result, dict)
 
     async def test_get_statistics_with_options(
-        self, hass, executor, exposed_entities, llm_context
+        self, hass, function, exposed_entities, llm_context
     ):
         """Test getting statistics with custom options."""
         from unittest.mock import MagicMock, patch
 
-        func_def = get_function_from_yaml("native_get_statistics_example.yaml", index=1)
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_tool = prepare_function_tool_from_yaml(
+            "native_get_statistics_example.yaml", index=1
+        )
+        function_config = function_tool["function"]
 
         arguments = {
             "statistic_ids": ["sensor.temperature", "sensor.humidity"],
@@ -310,24 +311,25 @@ class TestNativeGetStatistics:
         )
 
         with patch(
-            "custom_components.extended_openai_conversation.helpers.recorder.get_instance",
+            "custom_components.extended_openai_conversation.functions.native.recorder.get_instance",
             return_value=mock_recorder_instance,
         ):
-            result = await executor.execute(
-                hass, processed_function, arguments, llm_context, exposed_entities
+            result = await function.execute(
+                hass, function_config, arguments, llm_context, exposed_entities
             )
 
         assert isinstance(result, dict)
 
     async def test_get_statistics_invalid_datetime(
-        self, hass, executor, exposed_entities, llm_context
+        self, hass, function, exposed_entities, llm_context
     ):
         """Test getting statistics with invalid datetime."""
         from homeassistant.exceptions import HomeAssistantError
 
-        func_def = get_function_from_yaml("native_get_statistics_example.yaml", index=1)
-        function_executor = get_function_executor(func_def["function"]["type"])
-        processed_function = function_executor.to_arguments(func_def["function"])
+        function_tool = prepare_function_tool_from_yaml(
+            "native_get_statistics_example.yaml", index=1
+        )
+        function_config = function_tool["function"]
 
         arguments = {
             "start_time": "invalid-date",
@@ -337,6 +339,6 @@ class TestNativeGetStatistics:
         }
 
         with pytest.raises(HomeAssistantError):
-            await executor.execute(
-                hass, processed_function, arguments, llm_context, exposed_entities
+            await function.execute(
+                hass, function_config, arguments, llm_context, exposed_entities
             )
