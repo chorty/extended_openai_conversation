@@ -6,7 +6,7 @@ description: "Install Extended OpenAI Conversation via HACS or manually"
 ## Prerequisites
 
 - Home Assistant instance
-- OpenAI API key ([How to generate](https://www.home-assistant.io/integrations/openai_conversation/#generate-an-api-key))
+- API key for your chosen provider (or any placeholder value for local servers)
 
 ## Installation Methods
 
@@ -73,14 +73,10 @@ description: "Install Extended OpenAI Conversation via HACS or manually"
     4. Follow the setup wizard
   </Step>
 
-  <Step title="Enter API key">
-    Provide your OpenAI API key during setup.
+  <Step title="Choose provider and enter credentials">
+    Select your **API Provider** and fill in the required fields.
 
-    <Note>
-    If using OpenAI-compatible servers (Azure OpenAI, LocalAI, etc.), specify the "Base URL" during setup. Otherwise, leave it as the default.
-
-    For local LLM servers (Ollama, LM Studio, etc.), you can enter any value for the API key as it's not validated by local servers.
-    </Note>
+    See the [Provider Setup](#provider-setup) section below for provider-specific values.
   </Step>
 
   <Step title="Configure voice assistant">
@@ -93,6 +89,174 @@ description: "Install Extended OpenAI Conversation via HACS or manually"
     </Frame>
   </Step>
 </Steps>
+
+## Provider Setup
+
+<Tabs>
+  <Tab title="OpenAI">
+    ### OpenAI
+
+    The default provider. Requires a valid OpenAI API key.
+
+    | Field | Value |
+    |---|---|
+    | API Provider | `OpenAI` |
+    | Base URL | `https://api.openai.com/v1` (default) |
+    | API Key | Your OpenAI API key |
+    | Skip Authentication | Off |
+
+    Get your API key from [platform.openai.com/api-keys](https://platform.openai.com/api-keys).
+
+    **Recommended models:** `gpt-4o-mini` (balanced), `gpt-4o` (capable), `gpt-5-mini` (default)
+
+    <Note>
+    Reasoning models (o1, o3, o4, gpt-5) do not support `temperature` or `top_p`. Those fields are hidden automatically and replaced with `Reasoning Effort`.
+    </Note>
+  </Tab>
+
+  <Tab title="Azure OpenAI">
+    ### Azure OpenAI
+
+    Requires an Azure AI Foundry project with a deployed model.
+
+    | Field | Value |
+    |---|---|
+    | API Provider | `Azure OpenAI` |
+    | Base URL | `https://xxxxxxxxx.cognitiveservices.azure.com/` |
+    | API Key | Your Azure API key |
+    | API Version | e.g. `2024-12-01-preview` |
+    | Skip Authentication | **On** |
+
+    <Steps>
+      <Step title="Create an Azure OpenAI resource">
+        In [Azure Portal](https://portal.azure.com/), create an Azure OpenAI resource if you haven't already.
+      </Step>
+
+      <Step title="Open Azure AI Foundry and find your model endpoint">
+        1. Go to [Azure AI Foundry](https://ai.azure.com/)
+        2. Navigate to **My Assets** → **Models + endpoints**
+        3. Select the model you want to use
+        4. Open the **Code** tab in the model detail view
+      </Step>
+
+      <Step title="Copy credentials from the code example">
+        From the code example, copy these three values:
+
+        - `azure_endpoint` → use as **Base URL** (e.g. `https://xxxxxxxxx.cognitiveservices.azure.com/`)
+        - `api_version` → use as **API Version** (e.g. `2024-12-01-preview`)
+        - API key shown in the example → use as **API Key**
+      </Step>
+
+      <Step title="Configure the integration">
+        - Set **API Provider** to `Azure OpenAI`
+        - Paste the values copied above into the corresponding fields
+        - Enable **Skip Authentication**
+      </Step>
+
+      <Step title="Set the model name">
+        In the assistant options, enter the model name that is deployed in the Models + endpoints list.
+      </Step>
+    </Steps>
+
+    <Note>
+    Azure API Management domains (`azure-api.net`, `services.ai.azure.com`) are also supported in addition to `cognitiveservices.azure.com`.
+    </Note>
+  </Tab>
+
+  <Tab title="Other Compatible Servers">
+    ### Other OpenAI-Compatible Servers
+
+    Any server that implements the OpenAI-compatible API (Ollama, LM Studio, Groq, etc.) can be used.
+
+    **General configuration:**
+
+    | Field | Value |
+    |---|---|
+    | API Provider | `OpenAI` |
+    | Base URL | `http://<HOST>:<PORT>/v1` |
+    | API Key | Server token, or any value if not required |
+    | Skip Authentication | **On** (for local servers without auth) |
+
+    **Server-specific notes:**
+
+    <AccordionGroup>
+      <Accordion title="Ollama">
+        Ollama is a local model server with OpenAI-compatible API.
+
+        | Field | Value |
+        |---|---|
+        | API Provider | `OpenAI` |
+        | Base URL | `http://<HOST>:11434/v1` |
+        | API Key | Any value (e.g. `ollama`) |
+        | Skip Authentication | **On** |
+
+        <Warning>
+        Always enable **Skip Authentication** for Ollama. Without it, the integration attempts to validate your API key against Ollama's endpoint, which can cause misleading errors during setup.
+        </Warning>
+
+        <Warning>
+        The `/v1` suffix in the Base URL is required. Using `http://<HOST>:11434` without `/v1` causes a 404 error during setup.
+        </Warning>
+
+        **Network troubleshooting:**
+
+        If Ollama is unreachable from Home Assistant, verify that Ollama is bound to `0.0.0.0` and not just `127.0.0.1`. Test connectivity from the HA host with:
+        ```bash
+        curl http://<HOST>:11434/v1/models
+        ```
+
+        **`qwen2.5:14b` model for function calling** ([issue](https://github.com/jekalmin/extended_openai_conversation/issues/326#issuecomment-3765190068))
+
+        Many older or smaller models do not reliably emit structured tool calls. If the assistant verbally acknowledges your request but nothing actually happens, add this to your system prompt:
+
+        ```
+        When you want to take action, you MUST use the execute_services function.
+        You must wrap your commands in a list array.
+        ```
+      </Accordion>
+
+      <Accordion title="LM Studio">
+        LM Studio exposes an OpenAI-compatible local API.
+
+        | Field | Value |
+        |---|---|
+        | API Provider | `OpenAI` |
+        | Base URL | `http://<HOST>:1234/v1` |
+        | API Key | Any value (e.g. `lm-studio`) |
+        | Skip Authentication | **On** |
+
+        The default port is `1234`. Adjust the host/port if running LM Studio on a different machine or port.
+
+        **Model name:** Enter the model identifier shown in LM Studio's loaded model list (e.g. `qwen2.5-7b-instruct`).
+
+        The same function-calling limitations and prompt engineering tips that apply to Ollama also apply to LM Studio. Use models explicitly trained for tool use.
+      </Accordion>
+
+      <Accordion title="Groq">
+        Groq provides a cloud API with OpenAI-compatible endpoints.
+
+        - **Base URL:** `https://api.groq.com/openai/v1`
+        - **API Key:** Your Groq API key from [console.groq.com](https://console.groq.com)
+        - **Skip Authentication:** Off
+      </Accordion>
+
+      <Accordion title="Mistral AI">
+        Mistral's API uses shorter tool call IDs. Enable **Shorten Tool Call ID** in Advanced Options to avoid errors.
+
+        - **Base URL:** `https://api.mistral.ai/v1`
+        - **Advanced Options:** Enable `Shorten Tool Call ID`
+      </Accordion>
+
+    </AccordionGroup>
+
+    **Universal checklist for local/compatible servers:**
+
+    1. **Base URL must end with `/v1`**
+    2. **Enable Skip Authentication** for any server that doesn't validate API keys
+    3. **Function calling is model-dependent** — prefer models trained for tool use
+    4. **Prompt engineering helps** with local models — instruct the model explicitly to call `execute_services` and wrap commands in `{"list": [...]}`
+  </Tab>
+</Tabs>
 
 ## Expose Entities
 

@@ -45,6 +45,12 @@
               "skills/discover-skills",
               "skills/creating-skills"
             ]
+          },
+          {
+            "group": "Help",
+            "pages": [
+              "help/faq"
+            ]
           }
         ]
       }

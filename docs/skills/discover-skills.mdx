@@ -3,6 +3,10 @@ title: "Discover Skills"
 description: "Browse, download, and install skills for your AI assistant"
 ---
 
+<Warning>
+Only install skills from trusted sources—ideally ones you created yourself or from the official repository. Skills can execute bash commands, read/write files, and make network requests. A malicious skill could lead to data exfiltration, unauthorized system access, or other security risks.
+</Warning>
+
 ## Available Skills
 
 <CardGroup cols={2}>
@@ -85,3 +89,12 @@ service: extended_openai_conversation.reload_skills
 <Info>
 You don't need to reload after using `download_skill` service—it reloads automatically.
 </Info>
+
+## Security Considerations
+
+**Before installing any skill, audit it thoroughly:**
+
+- **Review all files**: Check `SKILL.md`, scripts under `scripts/`, and any other bundled files. Look for unexpected network calls, unusual file access patterns, or operations that don't match the skill's stated purpose.
+- **Be cautious with external sources**: Skills that fetch data from external URLs carry additional risk—even a trustworthy skill can be compromised if its external dependencies change over time.
+- **Watch for tool misuse**: Skills can invoke HA services, run bash commands, and access the filesystem. Verify that a skill only uses the capabilities it claims to need.
+- **Treat it like installing software**: Apply the same caution you would when installing any program on your system, especially for skills that have access to sensitive data or critical automations.
