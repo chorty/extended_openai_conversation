@@ -18,7 +18,8 @@
             "pages": [
               "index",
               "installation",
-              "configuration"
+              "configuration",
+              "services"
             ]
           },
           {
